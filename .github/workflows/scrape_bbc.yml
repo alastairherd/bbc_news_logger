@@ -1,0 +1,61 @@
+# .github/workflows/scrape_bbc.yml
+name: Scrape BBC Most Read
+
+# Controls when the workflow will run
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  # Runs on a schedule (times are in UTC)
+  # This runs at 08:00, 13:00, and 20:00 UTC every day
+  # Adjust UTC times if you need specific local times (e.g., BST is UTC+1)
+  # Example for 8am, 1pm, 8pm BST: '0 7,12,19 * * *'
+  schedule:
+    - cron: '0 8,13,20 * * *'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest # Use the latest Ubuntu runner
+
+    steps:
+      # Step 1: Check out your repository code
+      - name: Check out repo
+        uses: actions/checkout@v4 # Use v4 for latest features/fixes
+
+      # Step 2: Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v5 # Use v5
+        with:
+          python-version: '3.10' # Specify Python version
+          cache: 'pip' # Cache dependencies to speed up subsequent runs
+
+      # Step 3: Install Python dependencies from requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Step 4: Run the Python scraper script
+      # Make sure the script name matches your file name (e.g., bbc_scraper.py)
+      - name: Run Scraper
+        run: python BBC_News_Most_Read_Scraper.py # <--- CHANGE THIS to your actual python script filename
+
+      # Step 5: Commit the updated CSV file back to the repository
+      - name: Commit results
+        run: |
+          # Configure Git using the Actions bot token
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          # Stage the CSV file (replace with your actual CSV filename if different)
+          git add bbc_most_read_log.csv # <--- CHANGE THIS if your CSV filename is different
+
+          # Commit only if there are changes
+          # Check if there are staged changes, commit if yes
+          if ! git diff --staged --quiet; then
+            git commit -m "Update BBC Most Read data (${{ github.run_id }})"
+            git push
+          else
+            echo "No changes to commit."
+          fi
+        env:
+          # The GITHUB_TOKEN is automatically available to the workflow
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
