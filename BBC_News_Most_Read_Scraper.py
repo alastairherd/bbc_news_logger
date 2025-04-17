@@ -3,11 +3,12 @@ from bs4 import BeautifulSoup
 import csv
 import datetime
 import os
+import traceback # Added for potential debugging
 
 # --- Configuration ---
 URL = "https://www.bbc.co.uk/news"
-# Ensure the CSV file path is relative to the script location in the repo
-CSV_FILE = "bbc_most_read_log.csv"
+# Define the subdirectory for data files
+DATA_DIR = "data"
 # Number of top stories to fetch
 TOP_N = 10
 # Headers to mimic a browser visit
@@ -20,70 +21,52 @@ HEADERS = {
 def scrape_most_read():
     """
     Scrapes the 'Most Read' stories from the BBC News homepage.
-
-    Returns:
-        list: A list of dictionaries, where each dictionary contains
-              'rank', 'title', and 'link' for a story. Returns an empty
-              list if scraping fails.
+    Returns: list of story dicts or empty list on failure.
     """
-    # Use UTC time for consistency in Actions
     print(f"[{datetime.datetime.now(datetime.timezone.utc)}] Scraping {URL}...")
     stories = []
     try:
-        # Send an HTTP GET request to the URL
         response = requests.get(URL, headers=HEADERS, timeout=20)
-        response.raise_for_status() # Raise an exception for bad status codes
-
-        # Parse the HTML content using BeautifulSoup
+        response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # --- Find the 'Most Read' section ---
-        # Updated selector based on the provided HTML structure (April 2025)
-        # Looks for an <ol> inside a <div> with data-component="mostRead"
-        # The specific class 'ssrcss-1020bd1-Stack' is added for precision but might be fragile.
-        # If this breaks, try a simpler selector like 'div[data-component="mostRead"] ol'
-        most_read_list = soup.select_one('div[data-component="mostRead"] ol.ssrcss-1020bd1-Stack')
-
-        # Fallback if the primary selector fails (e.g., class name changed)
-        if not most_read_list:
-             print("Warning: Primary selector failed. Trying fallback 'div[data-component=\"mostRead\"] ol'")
-             most_read_list = soup.select_one('div[data-component="mostRead"] ol')
+        # Selector based on data-component attribute and ol tag
+        # Using a robust selector targeting the main container and the ordered list
+        most_read_list = soup.select_one('div[data-component="mostRead"] ol')
 
         if not most_read_list:
-            print("Error: Could not find the 'Most Read' list container using known selectors. The website structure might have changed significantly.")
+            print("Error: Could not find the 'Most Read' list container.")
             return []
 
-        # Find all list items (li) within the 'Most Read' list
-        # The class 'ssrcss-wt6gvb-PromoItem' could be added: find_all('li', class_='ssrcss-wt6gvb-PromoItem', limit=TOP_N)
-        # But finding direct 'li' children is usually robust enough here.
-        list_items = most_read_list.find_all('li', limit=TOP_N)
+        # Find direct li children within the identified list
+        list_items = most_read_list.find_all('li', recursive=False, limit=TOP_N)
+        if not list_items: # Fallback if direct children fail (less likely)
+             list_items = most_read_list.find_all('li', limit=TOP_N)
 
-        # Extract title and link from each list item
+
         for index, item in enumerate(list_items):
-            # Updated selector for the link based on provided HTML (April 2025)
-            # Looks for an <a> tag with the specific class 'ssrcss-qseizj-HeadlineLink'
-            # If this breaks, try a simpler selector like item.find('a')
-            link_tag = item.select_one('a.ssrcss-qseizj-HeadlineLink')
+            # Selector for the link, looking for an 'a' tag with 'HeadlineLink' in its class
+            # This is more robust to specific class name changes (e.g., ssrcss-xxxxxx-HeadlineLink)
+            link_tag = item.select_one('a[class*="HeadlineLink"]')
 
             if link_tag and link_tag.text:
                 title = link_tag.text.strip()
                 link = link_tag.get('href')
                 # Construct absolute URL if the link is relative
                 if link and not link.startswith('http'):
-                    # Handle potential base URL variations and ensure leading slash
                     base_url = "https://www.bbc.co.uk"
                     if not link.startswith('/'):
                         link = '/' + link
                     link = f"{base_url}{link}"
 
                 stories.append({
-                    "rank": index + 1, # Rank based on order in the list
+                    "rank": index + 1,
                     "title": title,
                     "link": link
                 })
             else:
-                 # Add more specific warning if possible
-                 print(f"Warning: Could not extract title/link from list item {index+1} using selector 'a.ssrcss-qseizj-HeadlineLink'. Item HTML: {item}")
+                 # Provide more context in warning
+                 print(f"Warning: Could not extract title/link from list item {index+1} using selector 'a[class*=\"HeadlineLink\"]'. Item HTML snippet: {str(item)[:200]}...")
 
 
         print(f"Successfully scraped {len(stories)} stories.")
@@ -93,15 +76,15 @@ def scrape_most_read():
         print(f"Error fetching URL {URL}: {e}")
         return []
     except Exception as e:
-        # Catching generic Exception to see any parsing errors etc.
         print(f"An error occurred during scraping or parsing: {e}")
-        # import traceback # Uncomment for detailed debugging
         # print(traceback.format_exc()) # Uncomment for detailed debugging
         return []
 
 def save_to_csv(stories):
     """
-    Appends the scraped stories to a CSV file with a timestamp.
+    Appends the scraped stories to a CSV file named with the current date,
+    stored within the DATA_DIR subdirectory. Creates the directory and
+    file/header if they don't exist.
 
     Args:
         stories (list): A list of story dictionaries from scrape_most_read().
@@ -110,32 +93,53 @@ def save_to_csv(stories):
         print("No stories to save.")
         return
 
-    # Use UTC timestamp for consistency in GitHub Actions
-    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    file_exists = os.path.isfile(CSV_FILE)
-
     try:
-        with open(CSV_FILE, 'a', newline='', encoding='utf-8') as csvfile:
+        # Ensure the data directory exists; create it if not.
+        # The exist_ok=True prevents an error if the directory already exists.
+        os.makedirs(DATA_DIR, exist_ok=True)
+
+        # Get current date in UTC for filename consistency
+        current_date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        # Construct the full path for the daily CSV file using os.path.join for cross-platform compatibility
+        csv_filepath = os.path.join(DATA_DIR, f"bbc_most_read_{current_date_str}.csv")
+
+        # Use UTC timestamp for the data rows, matching filename convention
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        # Check if the daily file exists *before* opening it
+        file_exists = os.path.isfile(csv_filepath)
+        # Check if the file is empty *after* opening (or rely on file_exists for new files)
+        needs_header = not file_exists
+
+        with open(csv_filepath, 'a', newline='', encoding='utf-8') as csvfile:
             fieldnames = ['timestamp', 'rank', 'title', 'link']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
-            # Write header only if the file is new or empty
-            if not file_exists or os.path.getsize(CSV_FILE) == 0:
+            # Write header only if the file is newly created
+            if needs_header:
                 writer.writeheader()
-                print(f"Written header to new/empty CSV file: {CSV_FILE}")
+                print(f"Written header to new CSV file: {csv_filepath}")
+            # Optional: Check size even if file exists, in case it was created empty previously
+            # elif csvfile.tell() == 0:
+            #     writer.writeheader()
+            #     print(f"Written header to existing but empty CSV file: {csv_filepath}")
+
 
             # Write story data
             for story in stories:
+                # Prepare row data, ensuring all keys exist
                 row_data = {field: story.get(field, '') for field in fieldnames}
-                row_data['timestamp'] = timestamp # Overwrite/set timestamp
+                row_data['timestamp'] = timestamp # Add/overwrite timestamp for this batch
                 writer.writerow(row_data)
 
-        print(f"Successfully appended {len(stories)} stories to {CSV_FILE}")
+        print(f"Successfully appended {len(stories)} stories to {csv_filepath}")
 
     except IOError as e:
-        print(f"Error writing to CSV file {CSV_FILE}: {e}")
+        print(f"Error writing to CSV file {csv_filepath}: {e}")
+        # print(traceback.format_exc()) # Uncomment for detailed debugging
     except Exception as e:
         print(f"An unexpected error occurred during CSV writing: {e}")
+        # print(traceback.format_exc()) # Uncomment for detailed debugging
 
 
 def run_scrape_job():
