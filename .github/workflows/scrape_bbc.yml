@@ -17,11 +17,9 @@ jobs:
   scrape:
     runs-on: ubuntu-latest # Use the latest Ubuntu runner
 
-    # <<<--- ADD THIS PERMISSIONS BLOCK ---<<<
     # Grant write permission to the GITHUB_TOKEN for the contents scope
     permissions:
       contents: write
-    # >>>--------------------------------->>>
 
     steps:
       # Step 1: Check out your repository code
@@ -40,10 +38,9 @@ jobs:
         run: pip install -r requirements.txt
 
       # Step 4: Run the Python scraper script
-      # Make sure the script name matches your file name (e.g., bbc_scraper.py)
       - name: Run Scraper
-        # Ensure this matches the actual filename of your Python script
-        run: python bbc_scraper_v1.py # <--- CONFIRM/CHANGE THIS FILENAME
+        # Updated to use the correct filename provided by the user
+        run: python BBC_News_Most_Read_Scraper.py # <--- USE ACTUAL FILENAME
 
       # Step 5: Commit the updated CSV file back to the repository
       - name: Commit results
