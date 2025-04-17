@@ -17,6 +17,12 @@ jobs:
   scrape:
     runs-on: ubuntu-latest # Use the latest Ubuntu runner
 
+    # <<<--- ADD THIS PERMISSIONS BLOCK ---<<<
+    # Grant write permission to the GITHUB_TOKEN for the contents scope
+    permissions:
+      contents: write
+    # >>>--------------------------------->>>
+
     steps:
       # Step 1: Check out your repository code
       - name: Check out repo
@@ -36,7 +42,8 @@ jobs:
       # Step 4: Run the Python scraper script
       # Make sure the script name matches your file name (e.g., bbc_scraper.py)
       - name: Run Scraper
-        run: python BBC_News_Most_Read_Scraper.py # <--- CHANGE THIS to your actual python script filename
+        # Ensure this matches the actual filename of your Python script
+        run: python bbc_scraper_v1.py # <--- CONFIRM/CHANGE THIS FILENAME
 
       # Step 5: Commit the updated CSV file back to the repository
       - name: Commit results
@@ -46,12 +53,17 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
           # Stage the CSV file (replace with your actual CSV filename if different)
-          git add bbc_most_read_log.csv # <--- CHANGE THIS if your CSV filename is different
+          # Ensure this matches the actual filename defined in your Python script
+          git add bbc_most_read_log.csv # <--- CONFIRM/CHANGE THIS FILENAME
 
           # Commit only if there are changes
           # Check if there are staged changes, commit if yes
           if ! git diff --staged --quiet; then
-            git commit -m "Update BBC Most Read data (${{ github.run_id }})"
+            # Use a dynamic commit message including the date/time
+            COMMIT_MSG="Update BBC Most Read data - $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            echo "Committing changes: $COMMIT_MSG"
+            git commit -m "$COMMIT_MSG"
+            echo "Pushing changes..."
             git push
           else
             echo "No changes to commit."
@@ -59,3 +71,4 @@ jobs:
         env:
           # The GITHUB_TOKEN is automatically available to the workflow
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
