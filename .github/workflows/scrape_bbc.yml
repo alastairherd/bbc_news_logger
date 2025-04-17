@@ -7,11 +7,9 @@ on:
   workflow_dispatch:
 
   # Runs on a schedule (times are in UTC)
-  # This runs at 08:00, 13:00, and 20:00 UTC every day
-  # Adjust UTC times if you need specific local times (e.g., BST is UTC+1)
-  # Example for 8am, 1pm, 8pm BST: '0 7,12,19 * * *'
+  # Updated to run hourly at minute 0
   schedule:
-    - cron: '0 8,13,20 * * *'
+    - cron: '0 * * * *' # Runs every hour
 
 jobs:
   scrape:
@@ -24,14 +22,14 @@ jobs:
     steps:
       # Step 1: Check out your repository code
       - name: Check out repo
-        uses: actions/checkout@v4 # Use v4 for latest features/fixes
+        uses: actions/checkout@v4
 
       # Step 2: Set up Python environment
       - name: Set up Python
-        uses: actions/setup-python@v5 # Use v5
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Specify Python version
-          cache: 'pip' # Cache dependencies to speed up subsequent runs
+          python-version: '3.10'
+          cache: 'pip'
 
       # Step 3: Install Python dependencies from requirements.txt
       - name: Install dependencies
@@ -39,8 +37,8 @@ jobs:
 
       # Step 4: Run the Python scraper script
       - name: Run Scraper
-        # Updated to use the correct filename provided by the user
-        run: python BBC_News_Most_Read_Scraper.py # <--- USE ACTUAL FILENAME
+        # Ensure this matches the actual filename of your Python script
+        run: python BBC_News_Most_Read_Scraper.py
 
       # Step 5: Commit the updated CSV file back to the repository
       - name: Commit results
@@ -49,12 +47,11 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          # Stage the CSV file (replace with your actual CSV filename if different)
-          # Ensure this matches the actual filename defined in your Python script
-          git add bbc_most_read_log.csv # <--- CONFIRM/CHANGE THIS FILENAME
+          # Stage the data directory containing the daily CSV file
+          # This will add the new/updated CSV for the current day
+          git add data/ # <--- UPDATED to add the data directory
 
           # Commit only if there are changes
-          # Check if there are staged changes, commit if yes
           if ! git diff --staged --quiet; then
             # Use a dynamic commit message including the date/time
             COMMIT_MSG="Update BBC Most Read data - $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
