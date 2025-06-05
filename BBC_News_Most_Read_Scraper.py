@@ -52,27 +52,44 @@ def scrape_most_read(soup):
     stories = []
     print("Scraping 'Most Read' section...")
     try:
-        most_read_list = soup.select_one('div[data-component="mostRead"] ol')
+        # The BBC occasionally changes the markup for the most read widget. Try
+        # a series of selectors to locate the list.
+        selectors = [
+            'div[data-component="mostRead"] ol',
+            'section[data-component="mostRead"] ol',
+            'div[data-component="MostRead"] ol',
+            'section[data-component="MostRead"] ol',
+            'div[data-testid="most-read"] ol',
+            'section[data-testid="most-read"] ol',
+            'div[data-entityid*="most-popular"] ol',
+            'section[data-entityid*="most-popular"] ol',
+        ]
+
+        most_read_list = None
+        for sel in selectors:
+            most_read_list = soup.select_one(sel)
+            if most_read_list:
+                break
+
         if not most_read_list:
-            print("Error: Could not find the 'Most Read' list container.")
+            print("Error: Could not find the 'Most Read' list container using known selectors.")
             return []
 
-        list_items = most_read_list.find_all('li', recursive=False, limit=TOP_N_MOST_READ)
-        if not list_items:
-             list_items = most_read_list.find_all('li', limit=TOP_N_MOST_READ)
+        list_items = most_read_list.find_all('li', limit=TOP_N_MOST_READ)
 
         for index, item in enumerate(list_items):
-            link_tag = item.select_one('a[class*="HeadlineLink"]')
+            link_tag = item.find('a')
             if link_tag and link_tag.text:
-                title = link_tag.text.strip()
+                title = link_tag.get_text(strip=True)
                 link = link_tag.get('href')
                 if link and not link.startswith('http'):
                     base_url = "https://www.bbc.co.uk"
-                    if not link.startswith('/'): link = '/' + link
+                    if not link.startswith('/'):
+                        link = '/' + link
                     link = f"{base_url}{link}"
                 stories.append({"rank": index + 1, "title": title, "link": link})
             else:
-                 print(f"Warning: Could not extract title/link from 'Most Read' item {index+1}.")
+                print(f"Warning: Could not extract title/link from 'Most Read' item {index+1}.")
 
         print(f"Successfully scraped {len(stories)} 'Most Read' stories.")
         return stories
@@ -92,19 +109,45 @@ def scrape_front_page_promos(soup):
     stories = []
     print("Scraping front page promo section...")
     try:
-        # Find the main container for the front page promo grid
-        # Based on user-provided HTML: 'div.ssrcss-1euvvif-Wrap ul.ssrcss-y8stko-Grid'
-        promo_grid = soup.select_one('div.ssrcss-1euvvif-Wrap ul.ssrcss-y8stko-Grid')
+        # Try several selectors as the front page layout changes frequently.
+        grid_selectors = [
+            'div.ssrcss-1euvvif-Wrap ul.ssrcss-y8stko-Grid',
+            'div.ssrcss-1euvvif-Wrap ul[class*="-Grid"]',
+            '[data-entityid="container-top-stories#1"] ul',
+            'section[data-component="top-stories"] ul',
+        ]
 
+        promo_grid = None
+        for sel in grid_selectors:
+            promo_grid = soup.select_one(sel)
+            if promo_grid:
+                break
+
+        # If no grid found, fall back to collecting promo links directly.
         if not promo_grid:
-             # Fallback if the specific grid class changes
-             promo_grid = soup.select_one('div.ssrcss-1euvvif-Wrap ul[class*="-Grid"]')
-             if not promo_grid:
-                  print("Error: Could not find the front page promo grid container.")
-                  return []
+            link_tags = soup.select('a[class*="-PromoLink"]')
+            if not link_tags:
+                print("Error: Could not find the front page promo grid container.")
+                return []
 
-        # Find all list items within that grid
-        # Using 'recursive=False' to only get direct children li elements
+            for link_tag in link_tags:
+                title_tag = link_tag.select_one('[class*="-PromoHeadline"]') or link_tag.find_parent().select_one('[class*="-PromoHeadline"]')
+                title = title_tag.get_text(strip=True) if title_tag else link_tag.get_text(strip=True)
+                link = link_tag.get('href')
+                if link and not link.startswith('http'):
+                    base_url = "https://www.bbc.co.uk"
+                    if not link.startswith('/'):
+                        link = '/' + link
+                    link = f"{base_url}{link}"
+                if title and link:
+                    stories.append({"title": title, "link": link})
+                if len(stories) >= 10:
+                    break
+
+            print(f"Collected {len(stories)} promo items via fallback selector.")
+            return stories
+
+        # Grid found - parse list items within it
         list_items = promo_grid.find_all('li', recursive=False)
 
         if not list_items:
@@ -113,18 +156,17 @@ def scrape_front_page_promos(soup):
 
         print(f"Found {len(list_items)} potential promo items in the grid.")
         for index, item in enumerate(list_items):
-            # Find the link and title within each list item
-            # These selectors might need refinement if structure varies between items
-            link_tag = item.select_one('a[class*="-PromoLink"]')
-            title_tag = item.select_one('p[class*="-PromoHeadline"]')
+            link_tag = item.select_one('a[class*="-PromoLink"]') or item.find('a')
+            title_tag = item.select_one('p[class*="-PromoHeadline"]') or item.select_one('[class*="-PromoHeadline"]')
 
-            if link_tag and title_tag:
-                title = title_tag.text.strip()
+            if link_tag:
+                title = title_tag.get_text(strip=True) if title_tag else link_tag.get_text(strip=True)
                 link = link_tag.get('href')
 
                 if link and not link.startswith('http'):
                     base_url = "https://www.bbc.co.uk"
-                    if not link.startswith('/'): link = '/' + link
+                    if not link.startswith('/'):
+                        link = '/' + link
                     link = f"{base_url}{link}"
 
                 if title and link:
@@ -132,16 +174,13 @@ def scrape_front_page_promos(soup):
                 else:
                     print(f"Warning: Found promo item {index+1} tags but missing title or link.")
             else:
-                # This might catch non-story items or differently structured promos
                 print(f"Note: Skipping item {index+1} in promo grid, couldn't find expected link/title tags.")
-                # print(f"  Item HTML snippet: {str(item)[:200]}...") # Uncomment for debugging
 
         print(f"Successfully scraped {len(stories)} front page promo stories.")
         return stories
 
     except Exception as e:
         print(f"An error occurred during front page promo scraping: {e}")
-        # print(traceback.format_exc())
         return []
 
 # --- Saving Functions ---
