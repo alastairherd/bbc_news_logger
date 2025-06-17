@@ -33,7 +33,9 @@ jobs:
 
       # Step 3: Install Python dependencies from requirements.txt
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install uv
+          uv pip install -e . --system
 
       # Step 4: Run the Python scraper script
       - name: Run Scraper
