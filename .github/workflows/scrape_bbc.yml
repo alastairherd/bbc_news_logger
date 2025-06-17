@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install uv
-          uv pip install -e .
+          uv pip install -e . --system
 
       # Step 4: Run the Python scraper script
       - name: Run Scraper
