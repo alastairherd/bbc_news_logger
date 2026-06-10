@@ -12,8 +12,24 @@ A GitHub Actions workflow (`.github/workflows/scrape_bbc.yml`) runs this script 
 
 The scraped data is stored in CSV files within the `data/` directory.
 - A new file is created each day, named `bbc_most_read_YYYY-MM-DD.csv`.
+- Front-page promo logs are also stored daily as `bbc_front_page_promos_YYYY-MM-DD.csv`.
 - Each file contains entries for all scrapes performed on that UTC date.
-- Columns: `timestamp` (UTC time of scrape), `rank` (1-10), `title`, `link`.
+- Most-read columns: `timestamp` (UTC time of scrape), `rank` (1-10), `title`, `link`.
+- Front-page promo columns: `timestamp` (UTC time of scrape), `title`, `link`.
+
+## Data Cleanup
+
+To prevent the top-level `data/` folder from growing without bound, `data_cleanup.py` archives old daily files into monthly zip files under `data/archive/{category}/{YYYY}/{MM}.zip`. By default it keeps the most recent 90 days as loose files so the scrapers and yesterday's article-content fetch continue to work normally.
+
+Run a dry-run preview:
+```bash
+python data_cleanup.py --dry-run
+```
+
+Archive files older than the retention window:
+```bash
+python data_cleanup.py --retention-days 90
+```
 
 ## Setup
 
