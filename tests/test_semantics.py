@@ -93,7 +93,9 @@ def test_sqlite_checkpoint_survives_reopen(tmp_path) -> None:
     restored.close()
 
 
-def test_embedding_refresh_normalizes_and_checkpoints_batch(monkeypatch, tmp_path) -> None:
+def test_embedding_refresh_normalizes_and_reports_checkpoint(
+    monkeypatch, tmp_path, capsys
+) -> None:
     start = datetime(2026, 7, 1, tzinfo=timezone.utc)
     article_table = pa.Table.from_pylist(
         [_article("hash-a", "Talks begin", start)], schema=ARTICLE_SCHEMA
@@ -119,6 +121,10 @@ def test_embedding_refresh_normalizes_and_checkpoints_batch(monkeypatch, tmp_pat
     table = pq.read_table(next(tmp_path.glob("*.parquet")))
     vector = table.column("embedding")[0].as_py()
     assert vector[:2] == pytest.approx([0.6, 0.8])
+    output = capsys.readouterr().out
+    assert '"event": "embedding_start"' in output
+    assert '"event": "embedding_checkpoint"' in output
+    assert '"rows_added": 1' in output
 
 
 def test_clustering_joins_same_event_but_not_nearby_unrelated_story() -> None:

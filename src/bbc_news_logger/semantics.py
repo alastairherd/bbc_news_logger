@@ -359,6 +359,20 @@ def run_embedding_refresh(
     )
     candidates = [row for row in articles if row["content_sha256"] not in done]
     selected = candidates[:limit] if limit > 0 else candidates
+    print(
+        json.dumps(
+            {
+                "event": "embedding_start",
+                "model": EMBEDDING_MODEL,
+                "completed": len(done),
+                "candidates": len(candidates),
+                "selected": len(selected),
+                "batch_size": batch_size,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
     model = embedder or _default_embedder()
     added = 0
     shards = 0
@@ -390,8 +404,9 @@ def run_embedding_refresh(
         table = pa.Table.from_pylist(rows, schema=EMBEDDING_SCHEMA)
         local_path = output_dir / Path(shard_path(EMBEDDING_PREFIX, rows)).name
         write_parquet(table, local_path)
+        published_path = None
         if publish:
-            publish_shard(
+            published_path = publish_shard(
                 table,
                 prefix=EMBEDDING_PREFIX,
                 dataset_id=dataset_id,
@@ -399,6 +414,20 @@ def run_embedding_refresh(
             )
             shards += 1
         added += len(rows)
+        print(
+            json.dumps(
+                {
+                    "event": "embedding_checkpoint",
+                    "rows_in_shard": len(rows),
+                    "rows_added": added,
+                    "selected": len(selected),
+                    "remaining_after_run": max(0, len(candidates) - added),
+                    "path": published_path or str(local_path),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
     return EmbeddingReport(
         model=EMBEDDING_MODEL,
         candidates=len(candidates),

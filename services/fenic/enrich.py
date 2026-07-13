@@ -39,6 +39,7 @@ from bbc_news_logger.storage import write_parquet
 
 MAX_BACKFILL_BUDGET_USD = Decimal("7.50")
 MAX_MONTHLY_BUDGET_USD = Decimal("1.00")
+REMOTE_SIGNAL_SHARD_ROWS = MAX_BATCH_SIZE * 4
 
 
 @dataclass(frozen=True)
@@ -134,7 +135,7 @@ def enrich(
         ]
         published_from_checkpoint = 0
         if publish:
-            for rows in _batches(local_rows, MAX_BATCH_SIZE):
+            for rows in _batches(local_rows, REMOTE_SIGNAL_SHARD_ROWS):
                 table = pa.Table.from_pylist(rows, schema=SIGNAL_SCHEMA)
                 publish_shard(
                     table,
@@ -153,6 +154,22 @@ def enrich(
             if row["content_sha256"] not in done and row["content_sha256"] not in failed
         ]
         selected = candidates[:limit] if limit > 0 else candidates
+        print(
+            json.dumps(
+                {
+                    "event": "deepseek_start",
+                    "scope": scope,
+                    "prior_scope_spend_usd": float(prior_spend),
+                    "process_budget_usd": float(process_cap),
+                    "candidates": len(candidates),
+                    "selected": len(selected),
+                    "batch_size": batch_size,
+                    "concurrency": concurrency,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
         pending_batches = _batches(selected, batch_size)
         output_dir.mkdir(parents=True, exist_ok=True)
         api_requests = 0
@@ -179,6 +196,7 @@ def enrich(
                 break
 
             futures: dict[Future[DeepSeekBatchResult], list[dict[str, Any]]] = {}
+            wave_rows: list[dict[str, Any]] = []
             with ThreadPoolExecutor(max_workers=concurrency) as executor:
                 for batch, _reservation in wave:
                     futures[executor.submit(_request, client, batch)] = batch
@@ -197,15 +215,42 @@ def enrich(
                     table = pa.Table.from_pylist(rows, schema=SIGNAL_SCHEMA)
                     local_path = output_dir / f"{result.response_id or hashes[0]}.parquet"
                     write_parquet(table, local_path)
-                    if publish:
-                        publish_shard(
-                            table,
-                            prefix=SIGNAL_PREFIX,
-                            dataset_id=dataset_id,
-                            message=f"Checkpoint {len(rows)} DeepSeek story signals",
-                        )
+                    wave_rows.extend(rows)
                     api_requests += 1
                     rows_added += len(rows)
+                    print(
+                        json.dumps(
+                            {
+                                "event": "deepseek_response_checkpoint",
+                                "api_requests": api_requests,
+                                "rows_added": rows_added,
+                                "response_rows": len(rows),
+                                "spent_usd": float(budget.spent_usd),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+            if publish and wave_rows:
+                wave_table = pa.Table.from_pylist(wave_rows, schema=SIGNAL_SCHEMA)
+                remote_path = publish_shard(
+                    wave_table,
+                    prefix=SIGNAL_PREFIX,
+                    dataset_id=dataset_id,
+                    message=f"Checkpoint {len(wave_rows)} DeepSeek story signals",
+                )
+                print(
+                    json.dumps(
+                        {
+                            "event": "deepseek_remote_checkpoint",
+                            "rows_in_shard": len(wave_rows),
+                            "rows_added": rows_added,
+                            "path": remote_path,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
 
         return EnrichmentReport(
             model=DEEPSEEK_MODEL,
