@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const base = "/bbc_news_logger/";
-const pages = ["index.html", "explore/index.html", "methodology/index.html"];
+const pages = ["index.html", "explore/index.html", "signals/index.html", "methodology/index.html"];
 const output = await Promise.all(
   pages.map(async (page) => [page, await readFile(new URL(`../dist/${page}`, import.meta.url), "utf8")]),
 );
@@ -9,6 +9,7 @@ const output = await Promise.all(
 for (const [page, html] of output) {
   for (const brokenPath of [
     "/bbc_news_loggerexplore",
+    "/bbc_news_loggersignals",
     "/bbc_news_loggermethodology",
     "/bbc_news_loggerdata",
   ]) {
@@ -17,7 +18,7 @@ for (const [page, html] of output) {
     }
   }
 
-  for (const route of [base, `${base}explore/`, `${base}methodology/`]) {
+  for (const route of [base, `${base}explore/`, `${base}signals/`, `${base}methodology/`]) {
     if (!html.includes(`href="${route}"`)) {
       throw new Error(`${page} is missing route link: ${route}`);
     }
@@ -26,6 +27,13 @@ for (const [page, html] of output) {
 
 const index = output.find(([page]) => page === "index.html")?.[1] ?? "";
 const explore = output.find(([page]) => page === "explore/index.html")?.[1] ?? "";
+const signals = output.find(([page]) => page === "signals/index.html")?.[1] ?? "";
+const signalScripts = await Promise.all(
+  [...signals.matchAll(/src="(\/bbc_news_logger\/[^\"]+\.js)"/g)].map((match) =>
+    readFile(new URL(`../dist/${match[1].slice(base.length)}`, import.meta.url), "utf8"),
+  ),
+);
+const signalOutput = `${signals}\n${signalScripts.join("\n")}`;
 
 for (const mart of ["data/manifest.json", "data/daily.json"]) {
   if (!index.includes(mart)) throw new Error(`index.html is missing mart request: ${mart}`);
@@ -35,4 +43,8 @@ for (const mart of ["data/stories.json", "data/rank-series.json"]) {
   if (!explore.includes(mart)) throw new Error(`explore/index.html is missing mart request: ${mart}`);
 }
 
-console.log(`Verified ${pages.length} GitHub Pages routes and four data-mart requests.`);
+for (const mart of ["data/semantic-trends.json", "data/recurring-events.json"]) {
+  if (!signalOutput.includes(mart)) throw new Error(`signals route is missing mart request: ${mart}`);
+}
+
+console.log(`Verified ${pages.length} GitHub Pages routes and six data-mart requests.`);

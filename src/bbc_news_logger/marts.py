@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +14,13 @@ import pyarrow.parquet as pq
 from huggingface_hub import snapshot_download
 
 from .config import DEFAULT_DATASET_ID
+
+SEMANTIC_PREFIXES = (
+    "data/observations",
+    "data/article_snapshots",
+    "semantic/signals",
+    "semantic/events",
+)
 
 
 def load_remote_observations(
@@ -35,6 +43,34 @@ def load_remote_observations(
     return pa.concat_tables(tables, promote_options="default")
 
 
+def load_remote_mart_tables(
+    dataset_id: str = DEFAULT_DATASET_ID,
+    token: str | None = None,
+) -> dict[str, pa.Table | None]:
+    snapshot = Path(
+        snapshot_download(
+            repo_id=dataset_id,
+            repo_type="dataset",
+            allow_patterns=[f"{prefix}/**/*.parquet" for prefix in SEMANTIC_PREFIXES],
+            token=token,
+            max_workers=8,
+        )
+    )
+    tables: dict[str, pa.Table | None] = {}
+    for prefix in SEMANTIC_PREFIXES:
+        files = sorted((snapshot / prefix).rglob("*.parquet"))
+        tables[prefix] = (
+            pa.concat_tables(
+                [pq.ParquetFile(path).read() for path in files], promote_options="default"
+            )
+            if files
+            else None
+        )
+    if tables["data/observations"] is None:
+        raise FileNotFoundError(f"No observation partitions found in {dataset_id}")
+    return tables
+
+
 def _records(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
     table = cursor.to_arrow_table()
     rows = table.to_pylist()
@@ -45,7 +81,131 @@ def _records(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
     return rows
 
 
-def build_marts(table: pa.Table, output_dir: Path) -> dict[str, object]:
+def _semantic_payloads(
+    *,
+    articles: pa.Table | None,
+    signals: pa.Table | None,
+    events: pa.Table | None,
+    stories: list[dict[str, object]],
+) -> tuple[dict[str, list[dict[str, object]]], dict[str, object]]:
+    article_by_hash: dict[str, dict[str, object]] = {}
+    if articles is not None:
+        for row in articles.to_pylist():
+            content_hash = str(row.get("content_sha256") or "")
+            if not content_hash or not row.get("fetch_ok"):
+                continue
+            existing = article_by_hash.get(content_hash)
+            if existing is None or row["fetched_at"] > existing["fetched_at"]:
+                article_by_hash[content_hash] = row
+    if signals is None:
+        return (
+            {"semantic-trends.json": [], "recurring-events.json": []},
+            {
+                "signalCount": 0,
+                "articleVersionCount": len(article_by_hash),
+                "coveragePercent": 0.0,
+                "recurringEventCount": 0,
+            },
+        )
+
+    signal_by_hash: dict[str, dict[str, object]] = {}
+    for row in signals.to_pylist():
+        content_hash = str(row.get("content_sha256") or "")
+        existing = signal_by_hash.get(content_hash)
+        if content_hash and (
+            existing is None or row["generated_at"] > existing["generated_at"]
+        ):
+            signal_by_hash[content_hash] = row
+
+    counts: Counter[tuple[str, str, str]] = Counter()
+    for content_hash, signal in signal_by_hash.items():
+        article = article_by_hash.get(content_hash)
+        if article is None:
+            continue
+        day = str(article["fetched_at"].date())
+        counts[(day, "topic", str(signal["topic"]))] += 1
+        counts[(day, "story_form", str(signal["story_form"]))] += 1
+        counts[(day, "event_type", str(signal["event_type"]))] += 1
+        for theme in signal.get("themes") or []:
+            counts[(day, "theme", str(theme))] += 1
+    trends = [
+        {"observed_date": day, "dimension": dimension, "value": value, "article_count": count}
+        for (day, dimension, value), count in sorted(counts.items())
+    ]
+
+    story_stats = {str(row["story_id"]): row for row in stories}
+    recurring: list[dict[str, object]] = []
+    if events is not None:
+        grouped: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
+        for row in events.to_pylist():
+            if int(row["cluster_size"]) > 1:
+                grouped[str(row["cluster_id"])].append(row)
+        for cluster_id, rows in grouped.items():
+            latest_by_story: dict[str, dict[str, object]] = {}
+            for row in rows:
+                story_id = str(row["story_id"])
+                current = latest_by_story.get(story_id)
+                if current is None or row["fetched_at"] > current["fetched_at"]:
+                    latest_by_story[story_id] = row
+            articles_payload = []
+            for row in sorted(latest_by_story.values(), key=lambda value: value["fetched_at"]):
+                stats = story_stats.get(str(row["story_id"]), {})
+                articles_payload.append(
+                    {
+                        "story_id": row["story_id"],
+                        "title": row["title"],
+                        "url": row["canonical_url"],
+                        "fetched_at": row["fetched_at"].astimezone(timezone.utc).isoformat(),
+                        "best_position": stats.get("best_position"),
+                        "surfaces": stats.get("surfaces", []),
+                    }
+                )
+            theme_counts = Counter(theme for row in rows for theme in row.get("themes") or [])
+            recurring.append(
+                {
+                    "cluster_id": cluster_id,
+                    "label": Counter(
+                        str(row["cluster_label"]) for row in rows
+                    ).most_common(1)[0][0],
+                    "event_type": Counter(
+                        str(row["event_type"]) for row in rows
+                    ).most_common(1)[0][0],
+                    "themes": [value for value, _ in theme_counts.most_common(5)],
+                    "first_seen": min(row["fetched_at"] for row in rows)
+                    .astimezone(timezone.utc)
+                    .isoformat(),
+                    "last_seen": max(row["fetched_at"] for row in rows)
+                    .astimezone(timezone.utc)
+                    .isoformat(),
+                    "article_count": len(latest_by_story),
+                    "version_count": len(rows),
+                    "articles": articles_payload,
+                }
+            )
+        recurring.sort(key=lambda row: (row["last_seen"], row["article_count"]), reverse=True)
+
+    article_count = len(article_by_hash)
+    signal_count = len(article_by_hash.keys() & signal_by_hash.keys())
+    coverage = round(signal_count / article_count * 100, 1) if article_count else 0.0
+    return (
+        {"semantic-trends.json": trends, "recurring-events.json": recurring},
+        {
+            "signalCount": signal_count,
+            "articleVersionCount": article_count,
+            "coveragePercent": coverage,
+            "recurringEventCount": len(recurring),
+        },
+    )
+
+
+def build_marts(
+    table: pa.Table,
+    output_dir: Path,
+    *,
+    articles: pa.Table | None = None,
+    signals: pa.Table | None = None,
+    events: pa.Table | None = None,
+) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
     con.register("observation_input", table)
@@ -155,11 +315,15 @@ def build_marts(table: pa.Table, output_dir: Path) -> dict[str, object]:
         )
     )
 
+    semantic_payloads, semantic_manifest = _semantic_payloads(
+        articles=articles, signals=signals, events=events, stories=stories
+    )
     payloads = {
         "stories.json": stories,
         "rank-series.json": rank_series,
         "daily.json": daily,
         "surface-lag.json": lag,
+        **semantic_payloads,
     }
     for name, payload in payloads.items():
         (output_dir / name).write_text(
@@ -173,6 +337,7 @@ def build_marts(table: pa.Table, output_dir: Path) -> dict[str, object]:
         "latestObservationAt": latest,
         "observationCount": table.num_rows,
         "storyCount": len(stories),
+        "semantics": semantic_manifest,
         "files": {name: len(payload) for name, payload in payloads.items()},
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -181,4 +346,11 @@ def build_marts(table: pa.Table, output_dir: Path) -> dict[str, object]:
 
 def build_remote_marts(output_dir: Path, dataset_id: str = DEFAULT_DATASET_ID) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="bbc-news-marts-"):
-        return build_marts(load_remote_observations(dataset_id), output_dir)
+        tables = load_remote_mart_tables(dataset_id)
+        return build_marts(
+            tables["data/observations"],  # type: ignore[arg-type]
+            output_dir,
+            articles=tables["data/article_snapshots"],
+            signals=tables["semantic/signals"],
+            events=tables["semantic/events"],
+        )

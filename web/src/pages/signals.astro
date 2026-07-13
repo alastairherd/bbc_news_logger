@@ -1,0 +1,205 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Semantic signals | BBC News Surface Lab"
+  description="Explore recurring BBC News stories and changes in themes, story forms, and event types."
+  current="signals"
+>
+  <div class="shell">
+    <header class="page-intro signals-intro">
+      <div>
+        <p class="context-label">Semantic analysis</p>
+        <h1>Patterns across the news cycle.</h1>
+      </div>
+      <p>Article labels and similarity clusters help identify themes and continuing events. Every result links back to captured articles, and coverage is shown explicitly.</p>
+    </header>
+
+    <section class="semantic-status" aria-label="Semantic dataset status">
+      <div><strong id="coverage">Loading</strong><span>article versions labelled</span></div>
+      <div><strong id="signal-count">—</strong><span>structured signals</span></div>
+      <div><strong id="event-count">—</strong><span>recurring story clusters</span></div>
+      <p id="coverage-note">Checking the latest mart manifest.</p>
+    </section>
+
+    <section class="signals-section" aria-labelledby="trend-heading">
+      <div class="signals-heading">
+        <div>
+          <h2 id="trend-heading">What kinds of stories are changing?</h2>
+          <p>Counts are based on fetched article versions, not audience size.</p>
+        </div>
+        <form class="signals-controls" id="trend-filters">
+          <div class="field">
+            <label for="dimension">Group by</label>
+            <select id="dimension" name="dimension">
+              <option value="theme">Theme</option>
+              <option value="topic">Topic</option>
+              <option value="story_form">Story form</option>
+              <option value="event_type">Event type</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="signal-value">Signal</label>
+            <select id="signal-value" name="value"><option>Loading…</option></select>
+          </div>
+        </form>
+      </div>
+      <figure class="trend-panel">
+        <figcaption id="trend-caption">Loading semantic trend mart…</figcaption>
+        <svg id="trend-chart" class="trend-chart" role="img" aria-labelledby="trend-caption"></svg>
+        <div class="table-wrap trend-table-wrap">
+          <table>
+            <caption class="sr-only">Daily counts for the selected semantic signal</caption>
+            <thead><tr><th>Date</th><th>Articles</th></tr></thead>
+            <tbody id="trend-table"><tr><td colspan="2" class="loading">Loading trend data…</td></tr></tbody>
+          </table>
+        </div>
+      </figure>
+    </section>
+
+    <section class="signals-section" aria-labelledby="recurring-heading">
+      <div class="signals-heading">
+        <div>
+          <h2 id="recurring-heading">Stories that return</h2>
+          <p>Clusters combine article similarity with event labels and named-entity evidence.</p>
+        </div>
+        <div class="field event-filter">
+          <label for="event-query">Filter clusters</label>
+          <input id="event-query" type="search" placeholder="Search events or themes" autocomplete="off" />
+        </div>
+      </div>
+      <div class="event-explorer">
+        <div class="event-list" id="event-list" aria-label="Recurring story clusters">
+          <p class="loading">Loading recurring stories…</p>
+        </div>
+        <aside class="event-detail" id="event-detail" aria-live="polite">
+          <h3>Select a recurring story</h3>
+          <p>Its article timeline and observed surface positions will appear here.</p>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    interface TrendRow { observed_date: string; dimension: string; value: string; article_count: number }
+    interface EventArticle { story_id: string; title: string; url: string; fetched_at: string; best_position: number | null; surfaces: string[] }
+    interface EventCluster { cluster_id: string; label: string; event_type: string; themes: string[]; first_seen: string; last_seen: string; article_count: number; version_count: number; articles: EventArticle[] }
+    interface Manifest { generatedAt: string; semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number } }
+
+    const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+    const number = new Intl.NumberFormat("en-GB");
+    const date = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+    let trends: TrendRow[] = [];
+    let events: EventCluster[] = [];
+    let selectedEvent: string | null = null;
+
+    const escape = (value: unknown): string => {
+      const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
+      return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
+    };
+    const element = (selector: string): HTMLElement => {
+      const result = document.querySelector<HTMLElement>(selector);
+      if (!result) throw new Error(`Missing element: ${selector}`);
+      return result;
+    };
+    const control = (selector: string): HTMLInputElement | HTMLSelectElement => {
+      const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
+      if (!result) throw new Error(`Missing control: ${selector}`);
+      return result;
+    };
+
+    function valuesForDimension(dimension: string): string[] {
+      const totals = new Map<string, number>();
+      trends.filter((row) => row.dimension === dimension).forEach((row) => totals.set(row.value, (totals.get(row.value) ?? 0) + row.article_count));
+      return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value]) => value);
+    }
+
+    function syncTrendValues() {
+      const dimension = control("#dimension").value;
+      const select = control("#signal-value") as HTMLSelectElement;
+      const previous = select.value;
+      const values = valuesForDimension(dimension);
+      select.innerHTML = values.length ? values.map((value) => `<option value="${escape(value)}">${escape(value.replaceAll("_", " "))}</option>`).join("") : "<option>No data yet</option>";
+      if (values.includes(previous)) select.value = previous;
+      renderTrend();
+    }
+
+    function renderTrend() {
+      const dimension = control("#dimension").value;
+      const value = control("#signal-value").value;
+      const rows = trends.filter((row) => row.dimension === dimension && row.value === value).slice(-120);
+      const svg = document.querySelector<SVGElement>("#trend-chart");
+      if (!svg) return;
+      element("#trend-caption").textContent = rows.length ? `${value.replaceAll("_", " ")} articles per day, latest ${rows.length} recorded days` : "This signal has no completed enrichment data yet.";
+      element("#trend-table").innerHTML = rows.length ? rows.slice(-14).reverse().map((row) => `<tr><td class="timestamp">${escape(row.observed_date)}</td><td class="rank">${row.article_count}</td></tr>`).join("") : `<tr><td colspan="2" class="loading">The backfill has not produced this trend yet.</td></tr>`;
+      if (!rows.length) { svg.innerHTML = ""; return; }
+      const width = 1000, height = 250, pad = { top: 18, right: 18, bottom: 34, left: 42 };
+      const maximum = Math.max(...rows.map((row) => row.article_count), 1);
+      const x = (index: number) => pad.left + index / Math.max(rows.length - 1, 1) * (width - pad.left - pad.right);
+      const y = (value: number) => pad.top + (1 - value / maximum) * (height - pad.top - pad.bottom);
+      const grid = [0, .5, 1].map((part) => `<line x1="${pad.left}" x2="${width-pad.right}" y1="${y(maximum*part)}" y2="${y(maximum*part)}"/><text x="4" y="${y(maximum*part)+4}">${Math.round(maximum*part)}</text>`).join("");
+      const points = rows.map((row, index) => `${x(index)},${y(row.article_count)}`).join(" ");
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.innerHTML = `${grid}<polyline points="${points}"/><text x="${pad.left}" y="${height-5}">${rows[0]!.observed_date}</text><text text-anchor="end" x="${width-pad.right}" y="${height-5}">${rows.at(-1)!.observed_date}</text>`;
+      const params = new URLSearchParams(location.search);
+      params.set("dimension", dimension); params.set("value", value);
+      history.replaceState(null, "", `${location.pathname}?${params}`);
+    }
+
+    function visibleEvents(): EventCluster[] {
+      const query = control("#event-query").value.trim().toLocaleLowerCase();
+      return events.filter((event) => !query || `${event.label} ${event.event_type} ${event.themes.join(" ")}`.toLocaleLowerCase().includes(query));
+    }
+
+    function renderEvents() {
+      const rows = visibleEvents();
+      element("#event-list").innerHTML = rows.length ? rows.map((event) => `
+        <button class="event-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}">
+          <span><strong>${escape(event.label)}</strong><small>${escape(event.event_type.replaceAll("_", " "))} · ${event.article_count} articles</small></span>
+          <time datetime="${escape(event.last_seen)}">${date.format(new Date(event.last_seen))}</time>
+        </button>`).join("") : `<p class="loading">No recurring stories match this filter.</p>`;
+      element("#event-list").querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.addEventListener("click", () => selectEvent(button.dataset.id ?? "")));
+    }
+
+    function selectEvent(id: string) {
+      const event = events.find((row) => row.cluster_id === id);
+      if (!event) return;
+      selectedEvent = id;
+      const timeline = event.articles.map((article) => `
+        <li><time datetime="${escape(article.fetched_at)}">${date.format(new Date(article.fetched_at))}</time>
+        <a href="${escape(article.url)}" target="_blank" rel="noreferrer">${escape(article.title)}</a>
+        <span>${article.surfaces.length ? article.surfaces.map((surface) => surface === "front_page" ? "front page" : "Most Read").join(" + ") : "article archive only"}${article.best_position ? ` · best #${article.best_position}` : ""}</span></li>`).join("");
+      element("#event-detail").innerHTML = `<p class="context-label">${escape(event.event_type.replaceAll("_", " "))}</p><h3>${escape(event.label)}</h3><div class="theme-list">${event.themes.map((theme) => `<span>${escape(theme)}</span>`).join("")}</div><dl><div><dt>First article</dt><dd>${date.format(new Date(event.first_seen))}</dd></div><div><dt>Latest article</dt><dd>${date.format(new Date(event.last_seen))}</dd></div><div><dt>Articles</dt><dd>${event.article_count}</dd></div><div><dt>Versions</dt><dd>${event.version_count}</dd></div></dl><ol class="event-timeline">${timeline}</ol>`;
+      renderEvents();
+      const params = new URLSearchParams(location.search); params.set("event", id);
+      history.replaceState(null, "", `${location.pathname}?${params}`);
+    }
+
+    element("#trend-filters").addEventListener("input", (event) => event.target === control("#dimension") ? syncTrendValues() : renderTrend());
+    control("#event-query").addEventListener("input", renderEvents);
+    Promise.all([
+      fetch(`${base}data/manifest.json`).then((response) => response.json()),
+      fetch(`${base}data/semantic-trends.json`).then((response) => response.json()),
+      fetch(`${base}data/recurring-events.json`).then((response) => response.json()),
+    ]).then(([manifest, trendRows, eventRows]: [Manifest, TrendRow[], EventCluster[]]) => {
+      trends = trendRows; events = eventRows;
+      const semantic = manifest.semantics ?? { signalCount: 0, articleVersionCount: 0, coveragePercent: 0, recurringEventCount: 0 };
+      element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}%`;
+      element("#signal-count").textContent = number.format(semantic.signalCount);
+      element("#event-count").textContent = number.format(semantic.recurringEventCount);
+      element("#coverage-note").textContent = semantic.coveragePercent < 100 ? `Historical enrichment is in progress. ${number.format(semantic.articleVersionCount - semantic.signalCount)} article versions remain.` : "All currently archived article versions have structured signals.";
+      const params = new URLSearchParams(location.search);
+      const requestedDimension = params.get("dimension"); if (requestedDimension) control("#dimension").value = requestedDimension;
+      syncTrendValues();
+      const requestedValue = params.get("value"); if (requestedValue && valuesForDimension(control("#dimension").value).includes(requestedValue)) control("#signal-value").value = requestedValue;
+      renderTrend(); renderEvents();
+      const requestedEvent = params.get("event");
+      if (requestedEvent && events.some((event) => event.cluster_id === requestedEvent)) selectEvent(requestedEvent); else if (events.length) selectEvent(events[0]!.cluster_id);
+    }).catch(() => {
+      element("#coverage").textContent = "Unavailable";
+      element("#coverage-note").textContent = "The static semantic marts could not be loaded.";
+      element("#event-list").innerHTML = `<p class="loading">Recurring-story data is temporarily unavailable.</p>`;
+    });
+  </script>
+</Layout>
