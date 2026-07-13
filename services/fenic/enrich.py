@@ -25,7 +25,7 @@ from bbc_news_logger.deepseek import (
     RunBudget,
     maximum_request_cost_usd,
 )
-from services.fenic.bootstrap import create_session
+from services.fenic.bootstrap import TABLES, create_session, dataset_paths
 
 SIGNAL_DESCRIPTION = (
     "DeepSeek V4 Flash topic, theme, event, summary, and named-entity signals for articles."
@@ -72,10 +72,19 @@ class EnrichmentReport:
     published: bool = False
 
 
+def _source_frame(session: fc.Session, table_name: str) -> fc.DataFrame | None:
+    if table_name in session.catalog.list_tables():
+        return session.table(table_name)
+    paths = dataset_paths(TABLES[table_name][0])
+    if not paths:
+        return None
+    return session.read.parquet(paths)
+
+
 def _existing_rows(session: fc.Session) -> list[dict[str, Any]]:
-    if "story_signals" not in session.catalog.list_tables():
+    table = _source_frame(session, "story_signals")
+    if table is None:
         return []
-    table = session.table("story_signals")
     required = {field.name for field in SIGNAL_SCHEMA}
     if not required.issubset(table.columns):
         return []
@@ -85,7 +94,10 @@ def _existing_rows(session: fc.Session) -> list[dict[str, Any]]:
 def _candidate_rows(
     session: fc.Session, existing: list[dict[str, Any]], limit: int
 ) -> list[dict[str, Any]]:
-    articles = session.table("article_snapshots").filter(fc.col("fetch_ok"))
+    articles = _source_frame(session, "article_snapshots")
+    if articles is None:
+        raise FileNotFoundError("No article snapshots were found in the public dataset")
+    articles = articles.filter(fc.col("fetch_ok"))
     completed_ids = {
         str(row["snapshot_id"])
         for row in existing
