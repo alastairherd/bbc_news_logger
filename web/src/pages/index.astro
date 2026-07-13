@@ -1,0 +1,171 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="BBC News Surface Lab — longitudinal news prominence"
+  description="Explore how stories move between the BBC News front page and Most Read list."
+  current="overview"
+>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Independent longitudinal dataset</p>
+        <h1>What rises, what stays, what gets read.</h1>
+        <p>
+          Hourly observations of BBC News editorial prominence and audience attention,
+          structured for reproducible research rather than a passing feed.
+        </p>
+      </div>
+      <aside class="hero-note">
+        <strong>Two surfaces, one timeline</strong>
+        Front page placement is used as a proxy for editorial prominence; Most Read placement
+        is used as a proxy for attention. Neither measures intent or absolute readership.
+      </aside>
+    </section>
+  </div>
+
+  <section class="status-strip" aria-label="Dataset status">
+    <dl class="shell status-grid">
+      <div class="metric">
+        <dt>Observations</dt>
+        <dd id="observation-count">—</dd>
+        <small>position-level rows</small>
+      </div>
+      <div class="metric">
+        <dt>Distinct stories</dt>
+        <dd id="story-count">—</dd>
+        <small>canonical URLs</small>
+      </div>
+      <div class="metric">
+        <dt>Latest observation</dt>
+        <dd id="latest-date">—</dd>
+        <small>UTC</small>
+      </div>
+      <div class="metric">
+        <dt>Collection status</dt>
+        <dd id="collection-status">Loading</dd>
+        <small id="generated-at">checking mart manifest</small>
+      </div>
+    </dl>
+  </section>
+
+  <div class="shell">
+    <section class="section" aria-labelledby="activity-heading">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Daily coverage</p>
+          <h2 id="activity-heading">A comparative record</h2>
+        </div>
+        <p>
+          Unique stories observed on each surface each day. The distance between the lines hints
+          at changes in the breadth of editorial placement and reader attention.
+        </p>
+      </div>
+      <figure class="analysis-panel">
+        <figcaption class="analysis-meta">
+          <div>
+            <h3>Unique stories by surface</h3>
+            <p id="chart-range">Loading daily mart…</p>
+          </div>
+          <div class="legend" aria-hidden="true">
+            <span style="--legend: oklch(73% .16 50)">Front page</span>
+            <span style="--legend: oklch(72% .13 235)">Most Read</span>
+          </div>
+        </figcaption>
+        <svg class="plot" id="daily-chart" role="img" aria-label="Daily unique story counts on the front page and Most Read list"></svg>
+      </figure>
+    </section>
+
+    <section class="section" aria-labelledby="questions-heading">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Designed for inquiry</p>
+          <h2 id="questions-heading">Questions the record can support</h2>
+        </div>
+        <a class="button secondary" href={`${import.meta.env.BASE_URL}explore/`}>Open the explorer <span aria-hidden="true">→</span></a>
+      </div>
+      <div class="questions">
+        <article class="question">
+          <span class="number">01 / PROMINENCE</span>
+          <h3>How long does a story retain a visible position?</h3>
+          <p>Follow every observed rank from first appearance to last, without reducing a story to a daily snapshot.</p>
+        </article>
+        <article class="question">
+          <span class="number">02 / TRANSFER</span>
+          <h3>When does attention follow editorial placement?</h3>
+          <p>Compare each story’s first appearance across surfaces and inspect the lag in either direction.</p>
+        </article>
+        <article class="question">
+          <span class="number">03 / ABSENCE</span>
+          <h3>Which popular stories never appear in the recorded front-page set?</h3>
+          <p>Filter by surface and time window, while keeping the limits of the captured page regions explicit.</p>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    interface DayRow {
+      observed_date: string;
+      front_page_stories: number;
+      most_read_stories: number;
+    }
+
+    interface MartManifest {
+      generatedAt: string;
+      latestObservationAt: string;
+      observationCount: number;
+      storyCount: number;
+    }
+
+    const base = import.meta.env.BASE_URL;
+    const number = new Intl.NumberFormat("en-GB");
+    const shortDate = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+
+    const element = (selector: string): HTMLElement => {
+      const value = document.querySelector<HTMLElement>(selector);
+      if (!value) throw new Error(`Missing element: ${selector}`);
+      return value;
+    };
+
+    function drawChart(rows: DayRow[]) {
+      const svg = document.querySelector("#daily-chart");
+      if (!(svg instanceof SVGElement) || !rows.length) return;
+      const recent = rows.slice(-120);
+      const width = 1000;
+      const height = 300;
+      const pad = { top: 18, right: 16, bottom: 34, left: 44 };
+      const max = Math.max(...recent.flatMap((row) => [row.front_page_stories, row.most_read_stories]), 1);
+      const x = (index: number) => pad.left + (index / Math.max(recent.length - 1, 1)) * (width - pad.left - pad.right);
+      const y = (value: number) => pad.top + (1 - value / max) * (height - pad.top - pad.bottom);
+      const points = (key: "front_page_stories" | "most_read_stories") => recent.map((row, index) => `${x(index)},${y(row[key])}`).join(" ");
+      const grid = [0, .25, .5, .75, 1].map((part) => {
+        const value = Math.round(max * part);
+        return `<line class="grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(value)}" y2="${y(value)}"/><text x="4" y="${y(value) + 4}">${value}</text>`;
+      }).join("");
+      const start = recent[0]!.observed_date;
+      const end = recent[recent.length - 1]!.observed_date;
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.innerHTML = `${grid}<polyline class="front" points="${points("front_page_stories")}"/><polyline class="read" points="${points("most_read_stories")}"/><text x="${pad.left}" y="${height - 5}">${start}</text><text text-anchor="end" x="${width - pad.right}" y="${height - 5}">${end}</text>`;
+      element("#chart-range").textContent = `${shortDate.format(new Date(start))} – ${shortDate.format(new Date(end))} · last ${recent.length} observed days`;
+    }
+
+    Promise.all([
+      fetch(`${base}data/manifest.json`).then((response) => response.json()),
+      fetch(`${base}data/daily.json`).then((response) => response.json()),
+    ]).then(([manifest, daily]: [MartManifest, DayRow[]]) => {
+      element("#observation-count").textContent = number.format(manifest.observationCount);
+      element("#story-count").textContent = number.format(manifest.storyCount);
+      const latest = new Date(manifest.latestObservationAt);
+      element("#latest-date").textContent = shortDate.format(latest);
+      const hours = (Date.now() - latest.getTime()) / 3_600_000;
+      element("#collection-status").textContent = hours < 3 ? "Current" : "Delayed";
+      element("#generated-at").textContent = `marts built ${shortDate.format(new Date(manifest.generatedAt))}`;
+      drawChart(daily);
+    }).catch(() => {
+      element("#collection-status").textContent = "Unavailable";
+      element("#generated-at").textContent = "static mart could not be loaded";
+    });
+  </script>
+</Layout>

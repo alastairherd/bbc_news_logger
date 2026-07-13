@@ -1,70 +1,30 @@
-# .github/workflows/scrape_bbc.yml
-name: Scrape BBC Most Read
+name: Collect BBC News observations
 
-# Controls when the workflow will run
 on:
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
-
-  # Runs on a schedule (times are in UTC)
-  # Updated to run hourly at minute 0
   schedule:
-    - cron: '0 * * * *' # Runs every hour
+    - cron: "7 * * * *"
+
+concurrency:
+  group: bbc-news-collection
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   scrape:
-    runs-on: ubuntu-latest # Use the latest Ubuntu runner
-
-    # Grant write permission to the GITHUB_TOKEN for the contents scope
-    permissions:
-      contents: write
-
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      # Step 1: Check out your repository code
-      - name: Check out repo
-        uses: actions/checkout@v4
-
-      # Step 2: Set up Python environment
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8
         with:
-          python-version: '3.10'
-          cache: 'pip'
-
-      # Step 3: Install Python dependencies from requirements.txt
-      - name: Install dependencies
-        run: |
-          pip install uv
-          uv pip install -e . --system
-
-      # Step 4: Run the Python scraper script
-      - name: Run Scraper
-        # Ensure this matches the actual filename of your Python script
-        run: python BBC_News_Most_Read_Scraper.py
-
-      # Step 5: Commit the updated CSV file back to the repository
-      - name: Commit results
-        run: |
-          # Configure Git using the Actions bot token
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-
-          # Stage the data directory containing the daily CSV file
-          # This will add the new/updated CSV for the current day
-          git add data/ # <--- UPDATED to add the data directory
-
-          # Commit only if there are changes
-          if ! git diff --staged --quiet; then
-            # Use a dynamic commit message including the date/time
-            COMMIT_MSG="Update BBC Most Read data - $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-            echo "Committing changes: $COMMIT_MSG"
-            git commit -m "$COMMIT_MSG"
-            echo "Pushing changes..."
-            git push
-          else
-            echo "No changes to commit."
-          fi
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install the locked runtime
+        run: uv sync --frozen --no-dev
+      - name: Collect, validate, and publish
+        run: uv run --no-sync bbc-news scrape --upload
         env:
-          # The GITHUB_TOKEN is automatically available to the workflow
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}

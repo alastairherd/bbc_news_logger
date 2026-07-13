@@ -1,0 +1,53 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+  current?: "overview" | "explore" | "methodology";
+}
+
+const { title, description, current } = Astro.props;
+const base = import.meta.env.BASE_URL;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f5f3ee" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="wordmark" href={base} aria-label="BBC News Research Lab home">
+        <span class="wordmark-mark" aria-hidden="true">BN</span>
+        <span>News Surface Lab</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href={base} aria-current={current === "overview" ? "page" : undefined}>Overview</a>
+        <a href={`${base}explore/`} aria-current={current === "explore" ? "page" : undefined}>Explore</a>
+        <a href={`${base}methodology/`} aria-current={current === "methodology" ? "page" : undefined}>Methodology</a>
+      </nav>
+      <a class="header-link" href="https://huggingface.co/datasets/AlastairH/bbc-news-logger">
+        Dataset <span aria-hidden="true">↗</span>
+      </a>
+    </header>
+    <main id="main">
+      <slot />
+    </main>
+    <footer>
+      <div>
+        <strong>BBC News Surface Observations</strong>
+        <p>An independent research project. Not affiliated with or endorsed by the BBC.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/alastairherd/bbc_news_logger">Source code</a>
+        <a href="https://huggingface.co/datasets/AlastairH/bbc-news-logger">Data card</a>
+      </div>
+    </footer>
+  </body>
+</html>

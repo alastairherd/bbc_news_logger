@@ -1,0 +1,171 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Explore stories — BBC News Surface Lab"
+  description="Search story histories and compare BBC News front-page and Most Read appearances."
+  current="explore"
+>
+  <div class="shell">
+    <header class="page-intro">
+      <div>
+        <p class="eyebrow">Story-level explorer</p>
+        <h1>Trace a story across both surfaces.</h1>
+      </div>
+      <p>Search title text, narrow by observed surface, and select a story to inspect its rank history. All times are UTC.</p>
+    </header>
+
+    <form class="toolbar" id="filters" role="search">
+      <div class="field">
+        <label for="query">Search titles</label>
+        <input id="query" name="query" type="search" placeholder="e.g. election, climate, Ukraine" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="surface">Surface</label>
+        <select id="surface" name="surface">
+          <option value="all">Both surfaces</option>
+          <option value="front_page">Front page</option>
+          <option value="most_read">Most Read</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="order">Order</label>
+        <select id="order" name="order">
+          <option value="recent">Most recent</option>
+          <option value="observed">Most observed</option>
+          <option value="rank">Best rank</option>
+        </select>
+      </div>
+    </form>
+
+    <div class="explorer">
+      <div class="table-wrap">
+        <table>
+          <caption class="sr-only">Stories matching the selected filters</caption>
+          <thead><tr><th>Story</th><th>Surface</th><th>Best</th><th>Last seen</th></tr></thead>
+          <tbody id="story-rows"><tr><td class="loading" colspan="4">Loading story mart…</td></tr></tbody>
+        </table>
+      </div>
+      <aside class="detail" id="story-detail" aria-live="polite">
+        <p class="eyebrow">Selected story</p>
+        <h2>Choose a row to inspect its history.</h2>
+        <p>The detail panel will show first and last sightings, best observed position, surfaces, and a rank trace for the last 30 days.</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    interface Story {
+      story_id: string;
+      title: string;
+      url: string;
+      first_seen: string;
+      last_seen: string;
+      observation_count: number;
+      best_position: number;
+      surfaces: string[];
+    }
+
+    interface RankPoint {
+      observed_at: string;
+      surface: string;
+      position: number;
+      story_id: string;
+    }
+
+    const base = import.meta.env.BASE_URL;
+    const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
+    let stories: Story[] = [];
+    let rankSeries: RankPoint[] = [];
+    let selectedId: string | null = null;
+
+    const escape = (value: unknown): string => {
+      const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
+      return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
+    };
+
+    const input = (selector: string): HTMLInputElement | HTMLSelectElement => {
+      const value = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
+      if (!value) throw new Error(`Missing input: ${selector}`);
+      return value;
+    };
+
+    const element = (selector: string): HTMLElement => {
+      const value = document.querySelector<HTMLElement>(selector);
+      if (!value) throw new Error(`Missing element: ${selector}`);
+      return value;
+    };
+
+    function visibleStories() {
+      const query = input("#query").value.trim().toLocaleLowerCase();
+      const surface = input("#surface").value;
+      const order = input("#order").value;
+      const filtered = stories.filter((story) => (!query || story.title.toLocaleLowerCase().includes(query)) && (surface === "all" || story.surfaces.includes(surface)));
+      filtered.sort((a, b) => {
+        if (order === "observed") return b.observation_count - a.observation_count;
+        if (order === "rank") return a.best_position - b.best_position;
+        return String(b.last_seen).localeCompare(String(a.last_seen));
+      });
+      return filtered.slice(0, 250);
+    }
+
+    function renderRows() {
+      const tbody = element("#story-rows");
+      const rows = visibleStories();
+      tbody.innerHTML = rows.length ? rows.map((story) => `
+        <tr data-id="${story.story_id}" aria-selected="${story.story_id === selectedId}">
+          <td><button type="button" data-id="${story.story_id}">${escape(story.title)}</button><span class="muted">${story.observation_count.toLocaleString("en-GB")} observations</span></td>
+          <td>${story.surfaces.map((surface) => `<span class="pill">${surface === "front_page" ? "front" : "read"}</span>`).join(" ")}</td>
+          <td class="rank">#${story.best_position}</td>
+          <td class="timestamp">${escape(String(story.last_seen).slice(0, 10))}</td>
+        </tr>`).join("") : `<tr><td class="loading" colspan="4">No stories match those filters.</td></tr>`;
+      tbody.querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.addEventListener("click", () => {
+        if (button.dataset.id) selectStory(button.dataset.id);
+      }));
+    }
+
+    function sparkline(points: RankPoint[]): string {
+      if (!points.length) return "<p>No observations for this story in the 30-day rank mart.</p>";
+      const width = 440, height = 110, pad = 8;
+      const x = (index: number) => pad + index / Math.max(points.length - 1, 1) * (width - pad * 2);
+      const y = (rank: number) => pad + (rank - 1) / 9 * (height - pad * 2);
+      const bySurface = ["front_page", "most_read"].map((surface) => points.filter((point) => point.surface === surface));
+      const colours = ["oklch(73% .16 50)", "oklch(72% .13 235)"];
+      const lines = bySurface.map((set, setIndex) => set.map((point, index) => `<circle cx="${x(index)}" cy="${y(point.position)}" r="3" fill="${colours[setIndex]}"><title>${point.surface}, rank ${point.position}, ${point.observed_at}</title></circle>`).join("")).join("");
+      return `<svg class="spark" viewBox="0 0 ${width} ${height}" role="img" aria-label="Observed positions in the latest 30-day window"><line x1="${pad}" x2="${width-pad}" y1="${y(1)}" y2="${y(1)}" stroke="var(--dark-line)"/><line x1="${pad}" x2="${width-pad}" y1="${y(10)}" y2="${y(10)}" stroke="var(--dark-line)"/>${lines}</svg>`;
+    }
+
+    function selectStory(id: string) {
+      selectedId = id;
+      const story = stories.find((item) => item.story_id === id);
+      if (!story) return;
+      const points = rankSeries.filter((item) => item.story_id === id);
+      element("#story-detail").innerHTML = `
+        <p class="eyebrow">Selected story</p>
+        <h2>${escape(story.title)}</h2>
+        <p>${story.observation_count.toLocaleString("en-GB")} position-level observations across ${story.surfaces.length} surface${story.surfaces.length === 1 ? "" : "s"}.</p>
+        <dl>
+          <div><dt>First seen</dt><dd>${dateTime.format(new Date(story.first_seen))}</dd></div>
+          <div><dt>Last seen</dt><dd>${dateTime.format(new Date(story.last_seen))}</dd></div>
+          <div><dt>Best position</dt><dd>#${story.best_position}</dd></div>
+          <div><dt>Surfaces</dt><dd>${story.surfaces.length}</dd></div>
+        </dl>
+        ${sparkline(points)}
+        <a class="button" href="${escape(story.url)}" target="_blank" rel="noreferrer">Open BBC article <span aria-hidden="true">↗</span></a>`;
+      renderRows();
+    }
+
+    element("#filters").addEventListener("input", renderRows);
+    Promise.all([
+      fetch(`${base}data/stories.json`).then((response) => response.json()),
+      fetch(`${base}data/rank-series.json`).then((response) => response.json()),
+    ]).then((payloads: [Story[], RankPoint[]]) => {
+      [stories, rankSeries] = payloads;
+      renderRows();
+      if (stories.length) selectStory(stories[0].story_id);
+    }).catch(() => {
+      element("#story-rows").innerHTML = `<tr><td class="loading" colspan="4">The static research mart could not be loaded.</td></tr>`;
+    });
+  </script>
+</Layout>

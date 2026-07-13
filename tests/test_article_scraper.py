@@ -1,71 +1,70 @@
-import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
-import sys
 
-import pandas as pd
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from article_content_scraper import (
-    parse_article_html,
+from bbc_news_logger.articles import (
+    ArticleTarget,
+    AsyncRateLimiter,
     fetch_articles,
+    parse_article_html,
 )
 
 
-@pytest.fixture
-def url_df():
-    return pd.DataFrame({
-        "url": ["http://example.com/one", "http://example.com/one", "http://example.com/two"],
-        "first_appeared_at": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02"), pd.Timestamp("2024-01-01")],
-    })
-
-
-def test_deduplication(url_df):
-    df = url_df.sort_values("first_appeared_at")
-    df = df.drop_duplicates("url", keep="first")
-    assert len(df) == 2
-    assert df.loc[df["url"] == "http://example.com/one", "first_appeared_at"].iloc[0] == pd.Timestamp("2024-01-01")
-
-
-def test_parse_article_html():
+def test_parse_article_html() -> None:
     html = Path("tests/fixtures/art1.html").read_text()
     canonical, title, authors, article_html, article_text = parse_article_html(html)
+
     assert canonical == "http://example.com/one"
+    assert title
     assert "Hello World" in article_text
     assert "Author A" in authors
+    assert article_html
 
 
 class MockResponse:
-    def __init__(self, url, text):
+    def __init__(self, url: str, body: str) -> None:
         self.url = url
-        self._text = text
+        self._body = body
         self.status = 200
 
-    async def text(self):
-        return self._text
+    async def text(self, **_: object) -> str:
+        return self._body
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "MockResponse":
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
-        pass
+    async def __aexit__(self, *_: object) -> None:
+        return None
 
 
 @pytest.mark.asyncio
-async def test_fetch_articles(monkeypatch, url_df):
+async def test_fetch_articles_deduplicates_and_returns_snapshots(monkeypatch) -> None:
     html_map = {
         "http://example.com/one": Path("tests/fixtures/art1.html").read_text(),
         "http://example.com/two": Path("tests/fixtures/art2.html").read_text(),
     }
 
-    def fake_get(self, url, **kwargs):
+    def fake_get(_self, url: str, **_kwargs: object) -> MockResponse:
         return MockResponse(url, html_map[url])
 
-    monkeypatch.setattr("aiohttp.ClientSession.get", fake_get, raising=False)
+    async def no_wait(_self) -> None:
+        return None
 
-    dedup = url_df.drop_duplicates("url", keep="first")
-    df = await fetch_articles(dedup)
-    assert len(df) == 2
-    assert df["fetch_ok"].all()
-    assert df["article_text"].notna().all()
+    monkeypatch.setattr("aiohttp.ClientSession.get", fake_get, raising=False)
+    monkeypatch.setattr(AsyncRateLimiter, "wait", no_wait)
+    first = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    second = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    targets = [
+        ArticleTarget("http://example.com/one", second),
+        ArticleTarget("http://example.com/one", first),
+        ArticleTarget("http://example.com/two", first),
+    ]
+
+    snapshots = await fetch_articles(targets)
+
+    assert len(snapshots) == 2
+    assert all(snapshot.fetch_ok for snapshot in snapshots)
+    assert all(snapshot.article_text for snapshot in snapshots)
+    one = next(item for item in snapshots if item.requested_url.endswith("/one"))
+    assert one.first_observed_at == first
