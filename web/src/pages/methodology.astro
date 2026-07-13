@@ -1,0 +1,69 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Methodology — BBC News Surface Lab"
+  description="Collection, storage, validation, and limitations for the BBC News Surface Observations dataset."
+  current="methodology"
+>
+  <div class="shell">
+    <header class="page-intro">
+      <div>
+        <p class="eyebrow">Versioned methodology</p>
+        <h1>A transparent collection, including its limits.</h1>
+      </div>
+      <p>Schema version 1 · selector version 2026-07 · timestamps and daily partitions use UTC.</p>
+    </header>
+
+    <div class="method-grid">
+      <nav class="method-nav" aria-label="Methodology sections">
+        <a href="#collection">Collection</a>
+        <a href="#contract">Data contract</a>
+        <a href="#migration">Legacy migration</a>
+        <a href="#validation">Validation</a>
+        <a href="#limitations">Limitations</a>
+      </nav>
+      <article class="prose">
+        <section id="collection">
+          <h2>Collection</h2>
+          <p>GitHub Actions requests the BBC News homepage once per hour. The collector records the first ten linked stories in two page regions: the Most Read ordered list and the leading front-page promo grid.</p>
+          <p>Each row receives a stable story identifier derived from its canonical URL and a scrape identifier shared by the rows from one response. Query parameters and URL fragments are removed before IDs are generated.</p>
+          <div class="notice"><strong>Fail-closed behavior:</strong> if either expected surface returns no stories, the run raises an error and publishes no partial observation batch.</div>
+        </section>
+
+        <section id="contract">
+          <h2>Data contract</h2>
+          <p>Small, append-oriented Parquet partitions replace mutable daily CSV files. Zstandard compression and dictionary encoding reduce transfer and storage. Raw article HTML is held separately so ordinary analysis only downloads typed metadata and plain text.</p>
+          <dl class="schema">
+            <div><dt>observed_at</dt><dd>Timezone-aware UTC timestamp for the homepage response.</dd></div>
+            <div><dt>surface</dt><dd><code>front_page</code> or <code>most_read</code>.</dd></div>
+            <div><dt>position</dt><dd>One-indexed order within the captured page region.</dd></div>
+            <div><dt>story_id</dt><dd>Stable SHA-256-derived key for a normalized canonical URL.</dd></div>
+            <div><dt>scrape_id</dt><dd>Stable key shared by every observation from one scrape.</dd></div>
+          </dl>
+        </section>
+
+        <section id="migration">
+          <h2>Legacy migration</h2>
+          <p>Historical loose CSVs, monthly ZIP archives, and article Parquet files are converted without altering the originals. A manifest records the source Git commit, SHA-256 for each source and destination, and all row counts.</p>
+          <p>The old article writer placed URL values in <code>first_appeared_at</code>. The migration replaces those values with the earliest matching observation when possible. It also marks historical fetch times as inferred because only the daily filename survives.</p>
+          <p>Historical front-page files had no position field. Their position is reconstructed from row order within each scrape and documented as such.</p>
+        </section>
+
+        <section id="validation">
+          <h2>Validation and reproducibility</h2>
+          <p>Parser fixtures cover both page regions, typed Arrow schemas are asserted in tests, publication upserts are idempotent, and dashboard marts are rebuilt from the public dataset rather than committed source data.</p>
+          <p>New collection runs include HTTP status, selector version, per-surface counts, workflow URL, and explicit success state. GitHub Actions uses a locked environment and concurrency controls, with read-only repository permissions except where Pages deployment requires them.</p>
+        </section>
+
+        <section id="limitations">
+          <h2>Interpretive limitations</h2>
+          <p>Front-page placement is not a direct measure of editorial importance, and Most Read rank is not a readership count. The capture covers selected regions of one web page, not apps, regional variants, personalization, or every BBC property.</p>
+          <p>Page structure can change without notice. Fail-closed validation makes gaps visible but cannot reconstruct missed observations. Article text extraction may include captions, related links, or interface text, and linked content can change between first observation and daily fetch.</p>
+          <p>This project is independent and is not affiliated with or endorsed by the BBC. BBC content remains subject to its terms and copyright.</p>
+        </section>
+      </article>
+    </div>
+  </div>
+</Layout>

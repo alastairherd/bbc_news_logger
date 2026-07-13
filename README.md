@@ -1,62 +1,113 @@
-# BBC News Most Read Logger
+# BBC News Surface Lab
 
-This project automatically scrapes the "Most Read" stories from the BBC News homepage (`https://www.bbc.co.uk/news`) every hour and logs them.
+An independent longitudinal dataset and research interface for studying how stories move between
+the BBC News front page and Most Read list.
 
-## How it Works
+- **Explore:** <https://alastairherd.github.io/bbc_news_logger/>
+- **Curated dataset:** <https://huggingface.co/datasets/AlastairH/bbc-news-logger>
+- **Raw HTML companion:** <https://huggingface.co/datasets/AlastairH/bbc-news-logger-raw>
 
-A Python script (`BBC_News_Most_Read_Scraper.py`) uses `requests` and `BeautifulSoup4` to fetch and parse the news homepage. The top 10 most read stories (title and link) are extracted.
+This project is not affiliated with or endorsed by the BBC. BBC content remains subject to its
+terms and copyright.
 
-A GitHub Actions workflow (`.github/workflows/scrape_bbc.yml`) runs this script every hour.
+## Architecture
 
-## Data Storage
-
-The scraped data is stored in CSV files within the `data/` directory.
-- A new file is created each day, named `bbc_most_read_YYYY-MM-DD.csv`.
-- Front-page promo logs are also stored daily as `bbc_front_page_promos_YYYY-MM-DD.csv`.
-- Each file contains entries for all scrapes performed on that UTC date.
-- Most-read columns: `timestamp` (UTC time of scrape), `rank` (1-10), `title`, `link`.
-- Front-page promo columns: `timestamp` (UTC time of scrape), `title`, `link`.
-
-## Data Cleanup
-
-To prevent the top-level `data/` folder from growing without bound, `data_cleanup.py` archives old daily files into monthly zip files under `data/archive/{category}/{YYYY}/{MM}.zip`. By default it keeps the most recent 90 days as loose files so the scrapers and yesterday's article-content fetch continue to work normally.
-
-Run a dry-run preview:
-```bash
-python data_cleanup.py --dry-run
+```text
+BBC News homepage
+       │ hourly, validated
+       ▼
+GitHub Actions ───────────────► Hugging Face Parquet datasets
+       │                                   │
+       │ 3-hourly marts                    ├──► Astro static research explorer
+       │                                   │
+       └── daily article fetch             └──► Fenic catalog + optional MCP service
 ```
 
-Archive files older than the retention window:
+The Git repository contains code, schemas, tests, and interface assets only. Data is published as
+Zstandard-compressed Parquet, partitioned by UTC date. Raw article HTML is kept in a separate
+dataset so normal analysis does not download the largest field.
+
+The historical migration preserved 171,887 position observations and 18,892 article snapshots in
+1,223 audited destination files. See `migration/manifest.json` in the curated dataset for source
+and destination hashes, row counts, and the source commit.
+
+## Local development
+
+Requires Python 3.10–3.12 and [uv](https://docs.astral.sh/uv/). The dashboard requires Node 22.
+
 ```bash
-python data_cleanup.py --retention-days 90
+uv sync --extra dev
+uv run pytest -q
+uv run ruff check .
+
+cd web
+npm ci
+npm run dev
 ```
 
-## Setup
+Useful pipeline commands:
 
-1. Clone the repository.
-2. Ensure Python 3.x is installed.
-3. Install dependencies with [uv](https://github.com/astral-sh/uv):
- ```bash
- uv pip install -e .
- ```
-
-## Running Manually (Optional)
-
-You can run the scraper manually:
 ```bash
-python BBC_News_Most_Read_Scraper.py
-```
-This will append data to the current day's CSV file in the `data/` directory.
+# Parse and validate a live homepage response without publishing it
+uv run bbc-news scrape
 
-To fetch the full text of articles for yesterday's URLs:
-```bash
-python article_content_scraper.py
+# Publish a validated batch (requires HF_TOKEN)
+uv run bbc-news scrape --upload
+
+# Build the JSON marts used by the static dashboard
+uv run bbc-news build-marts --output web/public/data
 ```
+
+## Data contract
+
+The public dataset has three configurations:
+
+- `observations`: one row for every story position in every successful scrape;
+- `article_snapshots`: parsed metadata and text for each daily URL set;
+- `scrape_runs`: validation and operational metadata for new runs.
+
+Stable `story_id` values derive from normalized canonical URLs. Each Parquet file embeds a schema
+version. Publication is an idempotent upsert on the record key, so rerunning a workflow cannot
+duplicate a batch.
+
+The dataset cards and the dashboard's Methodology page document repaired legacy fields,
+reconstructed front-page position, selector risk, and interpretive limits.
 
 ## Automation
 
-The process is automated via GitHub Actions, running hourly and committing updated data files back to the repository.
+| Workflow | Trigger | Result |
+| --- | --- | --- |
+| Collect BBC News observations | Hourly at `:07` | Validates both surfaces and upserts observations/run metadata to Hugging Face |
+| Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global request-rate limiter |
+| Deploy research dashboard | Every three hours and relevant pushes | Rebuilds marts from the public dataset and deploys GitHub Pages |
+| CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks/build, and Fenic's API checker |
+| Refresh Fenic semantic signals | Manual only | Runs the bounded OpenRouter/Fenic enrichment and publishes its Parquet output |
 
-## Daily Article Content Fetch
+All Actions jobs use least-privilege repository permissions, locked dependencies, timeouts,
+concurrency groups, and caches. They do not commit generated data back to Git.
 
-Each day at 02:00 UTC, the union of all URLs seen in the "Most Read" and front page promo logs from the previous day is fetched.  The full article HTML and a plain-text version are written to `data/article-content/{YYYY-MM-DD}.parquet`.
+## Fenic integration
+
+[`services/fenic`](services/fenic/) materializes the Hugging Face tables in a persistent Fenic
+catalog and exposes bounded schema, profile, search, read, and SQL-analysis tools over MCP. The
+semantic enrichment command is explicit and cached; ordinary MCP exploration does not call a
+language model.
+
+The Docker service is deployment-ready but not automatically hosted. Hugging Face currently
+requires a paid runtime for Docker Spaces. The static explorer remains fully functional without
+the sidecar. See the service README for local and Docker instructions.
+
+The supplied OpenRouter key is installed as an encrypted Actions secret, but its provider-side
+total limit is currently `0`; semantic enrichment will fail its preflight until that limit is
+raised. No paid inference is attempted automatically.
+
+## Repository layout
+
+```text
+src/bbc_news_logger/   collector, schemas, publication, migration, marts
+tests/                 parser, storage, migration, and mart contract tests
+web/                   static Astro research interface
+services/fenic/        optional Fenic catalog, enrichment, MCP service, Dockerfile
+datasets/              Hugging Face dataset cards
+.github/workflows/     collection, publication, CI, enrichment, Pages deployment
+```
