@@ -29,6 +29,7 @@ semantic = [
 ]
 dev = [
     "httpx>=0.28,<1",
+    "numpy>=2,<3",
     "pytest>=8.4,<9",
     "pytest-asyncio>=1.1,<2",
     "ruff>=0.12,<1",

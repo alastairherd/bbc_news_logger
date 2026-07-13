@@ -240,6 +240,9 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "httpx" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -271,6 +274,7 @@ requires-dist = [
     { name = "fenic", extras = ["mcp"], marker = "extra == 'semantic'", specifier = ">=0.10,<0.11" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28,<1" },
     { name = "huggingface-hub", specifier = ">=0.34,<2" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=2,<3" },
     { name = "numpy", marker = "extra == 'embedding'", specifier = ">=2,<3" },
     { name = "numpy", marker = "extra == 'semantic'", specifier = ">=2,<3" },
     { name = "pyarrow", specifier = ">=23.0.1,<23.0.2" },
