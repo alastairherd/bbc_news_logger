@@ -14,6 +14,11 @@ on:
         default: monthly
         type: choice
         options: [monthly, backfill]
+      run_deepseek:
+        description: Run paid DeepSeek labels after embeddings; disable for the free vector backfill
+        required: false
+        default: true
+        type: boolean
   workflow_run:
     workflows: [Fetch daily article snapshots]
     types: [completed]
@@ -29,7 +34,7 @@ jobs:
   refresh:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.DEEPSEEK_API }}
@@ -50,8 +55,9 @@ jobs:
       - name: Embed new article versions
         run: >-
           uv run --no-sync python -m services.fenic.embed
-          --limit "$SEMANTIC_LIMIT" --batch-size 128 --publish
+          --limit "$SEMANTIC_LIMIT" --batch-size 256 --publish
       - name: Label new article versions within the budget
+        if: github.event_name != 'workflow_dispatch' || inputs.run_deepseek
         shell: bash
         run: |
           if [[ -z "$DEEPSEEK_API_KEY" ]]; then

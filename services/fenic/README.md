@@ -54,6 +54,6 @@ rows enforce the separate `$7.50` backfill and `$1.00` monthly ledgers.
 The Docker image listens on port `7860` and persists its catalog beneath `/data`. A public service
 should set `FENIC_DB_PATH=/data` and mount durable storage there.
 
-This Docker image is not used by the free Hugging Face deployment. Build and run it locally or on
-a separate Docker host when an HTTP MCP service is needed. The historical BGE backfill uses the
-standard Gradio application under `spaces/bge-worker`, which fits the available free CPU runtime.
+Build and run this image locally or on a separate Docker host when an HTTP MCP service is needed.
+The historical BGE backfill does not require this image or a hosted Fenic service; it runs directly
+on a GitHub-hosted CPU runner and checkpoints vectors to the Hugging Face dataset.
