@@ -8,6 +8,11 @@ on:
         required: true
         default: "25"
         type: string
+      model:
+        description: OpenRouter model identifier
+        required: true
+        default: "nvidia/nemotron-3-ultra-550b-a55b:free"
+        type: string
 
 concurrency:
   group: fenic-semantic-enrichment
@@ -35,3 +40,4 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ inputs.model }}

@@ -12,6 +12,7 @@ from huggingface_hub import snapshot_download
 DATASET_ID = os.getenv("BBC_NEWS_DATASET", "AlastairH/bbc-news-logger")
 APP_NAME = os.getenv("FENIC_APP_NAME", "bbc_news_research_lab")
 DB_PATH = Path(os.getenv("FENIC_DB_PATH", ".fenic"))
+DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
 TABLES = {
     "observations": (
@@ -42,21 +43,39 @@ def create_session(*, semantic: bool = False) -> fc.Session:
         # authorization headers; mirror the same token until Fenic passes api_key.
         if openrouter_key := os.getenv("OPENROUTER_API_KEY"):
             os.environ.setdefault("OPENAI_API_KEY", openrouter_key)
-        # Fenic 0.10 sends OpenRouter `max_completion_tokens`, while the router
-        # advertises and accepts `max_tokens`. Suppress the incompatible field;
-        # the prompt and selected free model keep outputs bounded in practice.
+        # Fenic 0.10 sends `max_completion_tokens`, but some OpenRouter models
+        # (including Nemotron 3 Ultra) advertise only `max_tokens`. Suppress the
+        # incompatible field and put the equivalent cap in OpenRouter's extra body.
         client_module = import_module(
             "fenic._inference.openrouter.openrouter_batch_chat_completions_client"
         )
         client_class = client_module.OpenRouterBatchChatCompletionsClient
-        client_class._get_max_output_token_request_limit = lambda _self, _request: None
+        profile_module = import_module("fenic._inference.openrouter.openrouter_profile_manager")
+        profile_class = profile_module.OpenRouterCompletionProfileConfiguration
+        if not getattr(client_class, "_bbc_news_openrouter_compat", False):
+            original_extra_body = profile_class.extra_body.fget
 
-        model = os.getenv("OPENROUTER_MODEL", "qwen/qwen3-next-80b-a3b-instruct:free")
+            def compatible_extra_body(profile: object) -> dict[str, object]:
+                body = original_extra_body(profile) if original_extra_body else {}
+                body["max_tokens"] = int(os.getenv("OPENROUTER_MAX_TOKENS", "256"))
+                return body
+
+            client_class._get_max_output_token_request_limit = lambda _self, _request: None
+            client_class._bbc_news_openrouter_compat = True
+            profile_class.extra_body = property(compatible_extra_body)
+
+        model = os.getenv("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL)
         semantic_config = fc.SemanticConfig(
             language_models={
                 "openrouter": fc.OpenRouterLanguageModel(
                     model_name=model,
-                    structured_output_strategy="prefer_response_format",
+                    profiles={
+                        "extraction": fc.OpenRouterLanguageModel.Profile(
+                            reasoning_effort="none"
+                        )
+                    },
+                    default_profile="extraction",
+                    structured_output_strategy="prefer_tools",
                 )
             },
             default_language_model="openrouter",

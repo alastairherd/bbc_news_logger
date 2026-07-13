@@ -25,19 +25,20 @@ export OPENROUTER_API_KEY=...
 uv run --extra semantic python services/fenic/enrich.py --limit 25
 ```
 
-It uses Fenic's `semantic.map` followed by deterministic typed field extraction and defaults to the free
-`qwen/qwen3-next-80b-a3b-instruct:free` route. Override with `OPENROUTER_MODEL`. Results are cached by
-Fenic and saved as the `story_signals` catalog table, which is exposed automatically on the next
-service start.
+It uses Fenic's `semantic.map` followed by deterministic typed field extraction and defaults to the
+free `nvidia/nemotron-3-ultra-550b-a55b:free` route. Override with `OPENROUTER_MODEL`. Nemotron's
+optional reasoning is disabled for this bounded extraction task, and tool-based structured output is
+preferred for future typed semantic operators. Results are cached by Fenic and saved as the
+`story_signals` catalog table, which is exposed automatically on the next service start.
 
 Fenic 0.10 constructs its OpenRouter client through OpenAI SDK 2.45, which also insists on an
 `OPENAI_API_KEY`. The bootstrap mirrors `OPENROUTER_API_KEY` into that variable in-process; requests
 still use Fenic's OpenRouter base URL and authorization header.
 
-Fenic 0.10 also sends `max_completion_tokens`, which current OpenRouter endpoints reject in favour
-of `max_tokens`. The bootstrap suppresses that one request field in-process while this exact Fenic
-version is pinned. The enrichment command preflights the OpenRouter key and exits with a clear error
-when its configured total limit is exhausted.
+Fenic 0.10 sends `max_completion_tokens`, while Nemotron advertises `max_tokens`. The bootstrap
+translates that compatibility boundary in-process and keeps output capped at 256 tokens while this
+exact Fenic version is pinned. The enrichment command preflights the OpenRouter key and exits with a
+clear error when its configured total limit is exhausted.
 
 ## Deployment
 
