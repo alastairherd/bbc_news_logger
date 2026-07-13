@@ -10,7 +10,7 @@ the public dataset, and the GitHub Pages explorer continue working.
 
 ```bash
 uv sync --extra semantic
-uv run --extra semantic python services/fenic/bootstrap.py
+uv run --extra semantic python -m services.fenic.bootstrap
 uv run --extra semantic uvicorn services.fenic.serve:app --host 0.0.0.0 --port 7860
 ```
 
@@ -18,32 +18,42 @@ The public dataset does not require a Hugging Face token. Set `HF_TOKEN` to avoi
 limits. The service's ordinary search, profile, read, and SQL analysis tools do not call a language
 model.
 
-Semantic enrichment is an explicit batch operation:
+Pass `--tables article_snapshots story_signals` to bootstrap only those catalog tables for local
+analysis. Semantic refreshes do not need to bootstrap a persistent catalog: they read the required
+Hugging Face Parquet directly through Fenic and persist only the signal table.
+
+Semantic enrichment is an explicit local batch operation. The wrapper accepts a maximum number of
+article versions and defaults to 200:
 
 ```bash
-export OPENROUTER_API_KEY=...
-uv run --extra semantic python services/fenic/enrich.py --limit 25
+./scripts/refresh_semantics.sh 200
 ```
 
-It uses Fenic's `semantic.map` followed by deterministic typed field extraction and defaults to the free
-`qwen/qwen3-next-80b-a3b-instruct:free` route. Override with `OPENROUTER_MODEL`. Results are cached by
-Fenic and saved as the `story_signals` catalog table, which is exposed automatically on the next
-service start.
+The wrapper reads the ignored `CREDS.txt` when present and accepts either `DEEPSEEK_API_KEY` or the
+existing `DEEPSEEK_API` name. Authenticate this machine with `hf auth login`, or export `HF_TOKEN`,
+before publishing. Use `./scripts/refresh_semantics.sh 200 --local-only` to build and inspect output
+under `dist/` without uploading it.
 
-Fenic 0.10 constructs its OpenRouter client through OpenAI SDK 2.45, which also insists on an
-`OPENAI_API_KEY`. The bootstrap mirrors `OPENROUTER_API_KEY` into that variable in-process; requests
-still use Fenic's OpenRouter base URL and authorization header.
+It calls DeepSeek's native OpenAI-compatible API with `deepseek-v4-flash`, validates the JSON, and
+then stores the typed result in Fenic. This boundary is intentional because Fenic 0.10 does not have
+a first-class DeepSeek model provider. Fenic still owns the catalog, Parquet output, SQL analysis,
+and MCP tools.
 
-Fenic 0.10 also sends `max_completion_tokens`, which current OpenRouter endpoints reject in favour
-of `max_tokens`. The bootstrap suppresses that one request field in-process while this exact Fenic
-version is pinned. The enrichment command preflights the OpenRouter key and exits with a clear error
-when its configured total limit is exhausted.
+Each result includes topic, reusable themes, summary, entities, event label/type, and story form.
+Thinking is disabled, each article input is capped at 32,000 UTF-8 bytes, and up to eight articles
+are sent in one request. Four requests may run concurrently. Content hashes avoid repeat billing.
+
+The process calculates cost from DeepSeek's returned token counters and writes a run manifest to
+`dist/semantic-run.json`. Each successful response is committed to a synchronous SQLite WAL before
+the next wave starts and is uploaded as an immutable Parquet shard when publishing is enabled.
+The budget defaults to `$1.00` and the code rejects any higher process value. Persistent dataset
+rows enforce the separate `$7.50` backfill and `$1.00` monthly ledgers.
 
 ## Deployment
 
 The Docker image listens on port `7860` and persists its catalog beneath `/data`. A public service
 should set `FENIC_DB_PATH=/data` and mount durable storage there.
 
-Hugging Face no longer offers a free CPU runtime for Docker Spaces, so the repository does not
-automatically deploy this image. Build and run it on any Docker host, or create the intended
-`AlastairH/bbc-news-research-lab` Space after enabling a paid Hugging Face runtime.
+This Docker image is not used by the free Hugging Face deployment. Build and run it locally or on
+a separate Docker host when an HTTP MCP service is needed. The historical BGE backfill uses the
+standard Gradio application under `spaces/bge-worker`, which fits the available free CPU runtime.
