@@ -19,19 +19,20 @@ limits. The service's ordinary search, profile, read, and SQL analysis tools do 
 model.
 
 Pass `--tables article_snapshots story_signals` to bootstrap only those catalog tables for local
-analysis. The GitHub enrichment workflow is leaner still: it reads the required Hugging Face
-Parquet directly through Fenic and persists only the new signal table, avoiding a temporary copy of
-the complete article corpus on every run.
+analysis. Semantic refreshes do not need to bootstrap a persistent catalog: they read the required
+Hugging Face Parquet directly through Fenic and persist only the signal table.
 
-Semantic enrichment is an explicit batch operation:
+Semantic enrichment is an explicit local batch operation. The wrapper accepts a batch size and
+defaults to 200:
 
 ```bash
-export DEEPSEEK_API_KEY=...
-uv run --extra semantic python -m services.fenic.enrich --limit 25 --max-cost-usd 1.00
+./scripts/refresh_semantics.sh 200
 ```
 
-For GitHub Actions, store the same credential in the repository secret
-`DEEPSEEK_API_KEY`. Do not put it in the workflow or commit it to the repository.
+The wrapper reads the ignored `CREDS.txt` when present and accepts either `DEEPSEEK_API_KEY` or the
+existing `DEEPSEEK_API` name. Authenticate this machine with `hf auth login`, or export `HF_TOKEN`,
+before publishing. Use `./scripts/refresh_semantics.sh 200 --local-only` to build and inspect output
+under `dist/` without uploading it.
 
 It calls DeepSeek's native OpenAI-compatible API with `deepseek-v4-flash`, validates the JSON, and
 then stores the typed result in Fenic. This boundary is intentional because Fenic 0.10 does not have
@@ -44,7 +45,7 @@ requests run sequentially without automatic retries. Content hashes avoid repeat
 
 The process calculates cost from DeepSeek's returned token counters and writes a run manifest to
 `dist/semantic-run.json`. The budget defaults to `$1.00` and the code rejects any higher value, even
-if a workflow or environment variable tries to raise it. It reserves a conservative worst-case
+if an environment variable tries to raise it. It reserves a conservative worst-case
 amount before each request and stops before the next request could cross the remaining budget.
 
 ## Deployment
