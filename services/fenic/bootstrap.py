@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import argparse
 import os
+from collections.abc import Iterable
 from pathlib import Path
 
 import fenic as fc
@@ -54,10 +56,16 @@ def dataset_paths(prefix: str) -> list[str]:
     return [str(path) for path in sorted((snapshot / prefix).rglob("*.parquet"))]
 
 
-def bootstrap() -> dict[str, int]:
+def bootstrap(table_names: Iterable[str] | None = None) -> dict[str, int]:
+    selected = tuple(table_names or TABLES)
+    unknown = set(selected) - TABLES.keys()
+    if unknown:
+        raise ValueError(f"Unknown Fenic tables: {', '.join(sorted(unknown))}")
+
     session = create_session()
     counts: dict[str, int] = {}
-    for table_name, (prefix, description) in TABLES.items():
+    for table_name in selected:
+        prefix, description = TABLES[table_name]
         paths = dataset_paths(prefix)
         if not paths:
             if table_name in {"scrape_runs", "story_signals"}:
@@ -72,4 +80,7 @@ def bootstrap() -> dict[str, int]:
 
 
 if __name__ == "__main__":
-    print(bootstrap())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tables", nargs="+", choices=TABLES)
+    args = parser.parse_args()
+    print(bootstrap(args.tables))

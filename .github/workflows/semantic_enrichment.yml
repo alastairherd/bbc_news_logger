@@ -30,6 +30,7 @@ jobs:
       - name: Extract typed story signals and publish them
         run: >-
           uv run --no-sync python -m services.fenic.bootstrap
+          --tables article_snapshots story_signals
           && uv run --no-sync python -m services.fenic.enrich
           --limit "${{ inputs.limit }}" --max-cost-usd 1.00 --publish
         env:

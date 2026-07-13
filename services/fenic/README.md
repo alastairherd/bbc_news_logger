@@ -18,6 +18,10 @@ The public dataset does not require a Hugging Face token. Set `HF_TOKEN` to avoi
 limits. The service's ordinary search, profile, read, and SQL analysis tools do not call a language
 model.
 
+Pass `--tables article_snapshots story_signals` to bootstrap only the inputs needed by semantic
+enrichment. The GitHub workflow uses this narrower path so it does not download or materialize the
+large observations table for every small enrichment batch.
+
 Semantic enrichment is an explicit batch operation:
 
 ```bash
