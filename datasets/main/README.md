@@ -16,6 +16,12 @@ configs:
     data_files: data/article_snapshots/**/*.parquet
   - config_name: scrape_runs
     data_files: data/scrape_runs/**/*.parquet
+  - config_name: story_signals
+    data_files: semantic/signals/**/*.parquet
+  - config_name: article_embeddings
+    data_files: semantic/embeddings/**/*.parquet
+  - config_name: recurring_events
+    data_files: semantic/events/**/*.parquet
 ---
 
 # BBC News Surface Observations
@@ -35,6 +41,11 @@ audit, and journalistic analysis; users are responsible for ensuring their use i
   kept in the companion raw dataset.
 - `scrape_runs`: operational metadata for new collection runs, including selector version and
   validation counts.
+- `story_signals`: DeepSeek-generated topics, themes, story forms, event labels, and entities,
+  keyed by article content hash with token and cost provenance.
+- `article_embeddings`: normalized 384-dimensional BGE Small vectors, also keyed by content hash.
+- `recurring_events`: reproducible recurring-story cluster membership derived from vectors and
+  structured event evidence.
 
 All timestamps are UTC. Files use Zstandard-compressed Parquet partitioned by year, month, and UTC
 date. Schema version metadata is embedded in every file. Historical article `fetched_at` values are
@@ -51,3 +62,5 @@ hashes, and the source Git commit.
   it from the earliest matching observation when available.
 - Front-page promos had no explicit rank historically, so their position is reconstructed from row
   order within each scrape.
+- Semantic labels and clusters are model-assisted research signals, not verified statements of
+  fact. Coverage and model versions must be considered when comparing time periods.

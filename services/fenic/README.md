@@ -22,8 +22,8 @@ Pass `--tables article_snapshots story_signals` to bootstrap only those catalog 
 analysis. Semantic refreshes do not need to bootstrap a persistent catalog: they read the required
 Hugging Face Parquet directly through Fenic and persist only the signal table.
 
-Semantic enrichment is an explicit local batch operation. The wrapper accepts a batch size and
-defaults to 200:
+Semantic enrichment is an explicit local batch operation. The wrapper accepts a maximum number of
+article versions and defaults to 200:
 
 ```bash
 ./scripts/refresh_semantics.sh 200
@@ -40,19 +40,20 @@ a first-class DeepSeek model provider. Fenic still owns the catalog, Parquet out
 and MCP tools.
 
 Each result includes topic, reusable themes, summary, entities, event label/type, and story form.
-Thinking is disabled, input is capped at 32,000 UTF-8 bytes, output is capped at 256 tokens, and
-requests run sequentially without automatic retries. Content hashes avoid repeat billing.
+Thinking is disabled, each article input is capped at 32,000 UTF-8 bytes, and up to eight articles
+are sent in one request. Four requests may run concurrently. Content hashes avoid repeat billing.
 
 The process calculates cost from DeepSeek's returned token counters and writes a run manifest to
-`dist/semantic-run.json`. The budget defaults to `$1.00` and the code rejects any higher value, even
-if an environment variable tries to raise it. It reserves a conservative worst-case
-amount before each request and stops before the next request could cross the remaining budget.
+`dist/semantic-run.json`. Each successful response is committed to a synchronous SQLite WAL before
+the next wave starts and is uploaded as an immutable Parquet shard when publishing is enabled.
+The budget defaults to `$1.00` and the code rejects any higher process value. Persistent dataset
+rows enforce the separate `$7.50` backfill and `$1.00` monthly ledgers.
 
 ## Deployment
 
 The Docker image listens on port `7860` and persists its catalog beneath `/data`. A public service
 should set `FENIC_DB_PATH=/data` and mount durable storage there.
 
-Hugging Face no longer offers a free CPU runtime for Docker Spaces, so the repository does not
-automatically deploy this image. Build and run it on any Docker host, or create the intended
-`AlastairH/bbc-news-research-lab` Space after enabling a paid Hugging Face runtime.
+This Docker image is not used by the free Hugging Face deployment. Build and run it locally or on
+a separate Docker host when an HTTP MCP service is needed. The historical BGE backfill uses the
+standard Gradio application under `spaces/bge-worker`, which fits the available free CPU runtime.

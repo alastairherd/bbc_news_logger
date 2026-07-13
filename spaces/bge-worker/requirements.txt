@@ -1,0 +1,2 @@
+gradio>=5,<7
+bbc-news-logger[embedding] @ git+https://github.com/alastairherd/bbc_news_logger@main

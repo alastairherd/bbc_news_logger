@@ -27,8 +27,16 @@ TABLES = {
         "Operational metadata and validation counts for collection runs.",
     ),
     "story_signals": (
-        "semantic/",
+        "semantic/signals/",
         "DeepSeek topic, theme, event, summary, and named-entity signals for articles.",
+    ),
+    "article_embeddings": (
+        "semantic/embeddings/",
+        "Normalized BGE Small vectors keyed by article content hash.",
+    ),
+    "event_clusters": (
+        "semantic/events/",
+        "Recurring-story cluster membership and evidence labels.",
     ),
 }
 
@@ -68,7 +76,12 @@ def bootstrap(table_names: Iterable[str] | None = None) -> dict[str, int]:
         prefix, description = TABLES[table_name]
         paths = dataset_paths(prefix)
         if not paths:
-            if table_name in {"scrape_runs", "story_signals"}:
+            if table_name in {
+                "scrape_runs",
+                "story_signals",
+                "article_embeddings",
+                "event_clusters",
+            }:
                 continue
             raise FileNotFoundError(f"No Parquet files found for {table_name} in {DATASET_ID}")
         frame = session.read.parquet(paths)

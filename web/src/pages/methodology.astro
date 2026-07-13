@@ -22,6 +22,7 @@ import Layout from "../layouts/Layout.astro";
         <a href="#contract">Data contract</a>
         <a href="#migration">Legacy migration</a>
         <a href="#validation">Validation</a>
+        <a href="#semantics">Semantic analysis</a>
         <a href="#limitations">Limitations</a>
       </nav>
       <article class="prose">
@@ -57,10 +58,18 @@ import Layout from "../layouts/Layout.astro";
           <p>New collection runs include HTTP status, selector version, per-surface counts, workflow URL, and explicit success state. GitHub Actions uses a locked environment and concurrency controls, with read-only repository permissions except where Pages deployment requires them.</p>
         </section>
 
+        <section id="semantics">
+          <h2>Semantic analysis</h2>
+          <p>Each distinct article content hash can receive two versioned derivatives. BGE Small produces a normalized 384-dimensional vector from the headline and opening article text. DeepSeek V4 Flash produces a validated topic, themes, story form, event type, event label, summary, and named entities.</p>
+          <p>Paid requests contain no more than eight articles and run with a maximum concurrency of four. Results are committed to a synchronous local checkpoint before more paid work starts, then uploaded as content-addressed Parquet shards. The process enforces a $1 process ceiling, a $7.50 historical ceiling, and a $1 monthly incremental ceiling.</p>
+          <p>Recurring stories are joined only when article vectors are strongly similar, or when moderate similarity is supported by a shared named entity or closely matching event label. The clustering window is 45 days. These outputs are discovery aids rather than editorial classifications or verified factual claims.</p>
+        </section>
+
         <section id="limitations">
           <h2>Interpretive limitations</h2>
           <p>Front-page placement is not a direct measure of editorial importance, and Most Read rank is not a readership count. The capture covers selected regions of one web page, not apps, regional variants, personalization, or every BBC property.</p>
           <p>Page structure can change without notice. Fail-closed validation makes gaps visible but cannot reconstruct missed observations. Article text extraction may include captions, related links, or interface text, and linked content can change between first observation and daily fetch.</p>
+          <p>Semantic coverage may be incomplete while a backfill is running. Model outputs can be inconsistent or wrong, and similarity thresholds can join or separate stories imperfectly. The Signals page displays coverage, while the dataset retains model, prompt, and input versions for reproducibility.</p>
           <p>This project is independent and is not affiliated with or endorsed by the BBC. BBC content remains subject to its terms and copyright.</p>
         </section>
       </article>

@@ -9,7 +9,14 @@ from services.fenic.bootstrap import create_session
 session = create_session()
 table_names = [
     table
-    for table in ("observations", "article_snapshots", "scrape_runs", "story_signals")
+    for table in (
+        "observations",
+        "article_snapshots",
+        "scrape_runs",
+        "story_signals",
+        "article_embeddings",
+        "event_clusters",
+    )
     if table in session.catalog.list_tables()
 ]
 if not table_names:

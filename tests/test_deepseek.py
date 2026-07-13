@@ -16,6 +16,7 @@ from bbc_news_logger.deepseek import (
     DeepSeekError,
     RunBudget,
     maximum_request_cost_usd,
+    parse_signal_batch,
     parse_signals,
     parse_usage,
     token_cost_usd,
@@ -135,3 +136,49 @@ def test_client_disables_thinking_and_caps_output() -> None:
     assert body["thinking"] == {"type": "disabled"}
     assert body["response_format"] == {"type": "json_object"}
     assert body["max_tokens"] == MAX_OUTPUT_TOKENS
+
+
+def test_batch_client_returns_every_requested_article_in_input_order() -> None:
+    first = json.loads(signal_json())
+    second = {**first, "event_label": "Example agreement signed"}
+    response = FakeResponse(
+        {
+            "id": "completion-batch",
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "articles": [
+                                    {"id": "hash-b", **second},
+                                    {"id": "hash-a", **first},
+                                ]
+                            }
+                        )
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 200,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 200,
+                "completion_tokens": 100,
+            },
+        }
+    )
+    session = FakeSession(response)
+    result = DeepSeekClient("secret", session=session).enrich_batch(
+        [("hash-a", "First article"), ("hash-b", "Second article")]
+    )
+
+    assert [article_id for article_id, _ in result.signals] == ["hash-a", "hash-b"]
+    assert session.request is not None
+    assert session.request["json"]["max_tokens"] == MAX_OUTPUT_TOKENS * 2
+
+
+def test_batch_parser_rejects_partial_paid_response() -> None:
+    with pytest.raises(DeepSeekError, match="exactly"):
+        parse_signal_batch(
+            json.dumps({"articles": [{"id": "hash-a", **json.loads(signal_json())}]}),
+            ["hash-a", "hash-b"],
+        )

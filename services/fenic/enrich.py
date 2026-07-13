@@ -1,235 +1,228 @@
-"""Create a typed, cached semantic signal table for recent article snapshots."""
+"""Checkpointed, parallel DeepSeek enrichment for unique article versions."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-import fenic as fc
 import pyarrow as pa
-from huggingface_hub import CommitOperationAdd, HfApi
 
+from bbc_news_logger.config import DEFAULT_DATASET_ID
 from bbc_news_logger.deepseek import (
     DEEPSEEK_MODEL,
+    MAX_BATCH_SIZE,
     MAX_RUN_BUDGET_USD,
     PROMPT_VERSION,
-    BudgetExceeded,
+    DeepSeekBatchResult,
     DeepSeekClient,
-    DeepSeekResult,
     RunBudget,
-    maximum_request_cost_usd,
+    maximum_batch_request_cost_usd,
 )
-from services.fenic.bootstrap import TABLES, create_session, dataset_paths
+from bbc_news_logger.semantics import (
+    SIGNAL_PREFIX,
+    SIGNAL_SCHEMA,
+    SemanticCheckpoint,
+    completed_hashes,
+    download_dataset_tables,
+    publish_shard,
+    signal_rows_from_batch,
+    unique_article_rows,
+)
+from bbc_news_logger.storage import write_parquet
 
-SIGNAL_DESCRIPTION = (
-    "DeepSeek V4 Flash topic, theme, event, summary, and named-entity signals for articles."
-)
-SIGNAL_SCHEMA = pa.schema(
-    [
-        pa.field("snapshot_id", pa.string(), nullable=False),
-        pa.field("story_id", pa.string(), nullable=False),
-        pa.field("canonical_url", pa.string(), nullable=False),
-        pa.field("fetched_at", pa.timestamp("us", tz="UTC"), nullable=False),
-        pa.field("content_sha256", pa.string(), nullable=False),
-        pa.field("model", pa.string(), nullable=False),
-        pa.field("prompt_version", pa.string(), nullable=False),
-        pa.field("topic", pa.string(), nullable=False),
-        pa.field("themes", pa.list_(pa.string()), nullable=False),
-        pa.field("summary", pa.string(), nullable=False),
-        pa.field("named_entities", pa.list_(pa.string()), nullable=False),
-        pa.field("event_label", pa.string(), nullable=False),
-        pa.field("event_type", pa.string(), nullable=False),
-        pa.field("story_form", pa.string(), nullable=False),
-        pa.field("generated_at", pa.timestamp("us", tz="UTC"), nullable=False),
-        pa.field("deepseek_response_id", pa.string(), nullable=False),
-        pa.field("prompt_tokens", pa.int64(), nullable=False),
-        pa.field("prompt_cache_hit_tokens", pa.int64(), nullable=False),
-        pa.field("prompt_cache_miss_tokens", pa.int64(), nullable=False),
-        pa.field("completion_tokens", pa.int64(), nullable=False),
-        pa.field("request_cost_usd", pa.float64(), nullable=False),
-        pa.field("cache_reused", pa.bool_(), nullable=False),
-    ]
-)
+MAX_BACKFILL_BUDGET_USD = Decimal("7.50")
+MAX_MONTHLY_BUDGET_USD = Decimal("1.00")
 
 
 @dataclass(frozen=True)
 class EnrichmentReport:
     model: str
     prompt_version: str
-    budget_usd: float
+    scope: str
+    process_budget_usd: float
+    prior_scope_spend_usd: float
     spent_usd: float
     api_requests: int
-    cache_reuses: int
     rows_added: int
-    rows_total: int
+    rows_published_from_checkpoint: int
+    failures: int
+    remaining: int
     stopped_for_budget: bool
-    published: bool = False
 
 
-def _source_frame(session: fc.Session, table_name: str) -> fc.DataFrame | None:
-    if table_name in session.catalog.list_tables():
-        return session.table(table_name)
-    paths = dataset_paths(TABLES[table_name][0])
-    if not paths:
-        return None
-    return session.read.parquet(paths)
-
-
-def _existing_rows(session: fc.Session) -> list[dict[str, Any]]:
-    table = _source_frame(session, "story_signals")
+def _scope_spend(table: pa.Table | None, scope: str) -> Decimal:
     if table is None:
-        return []
-    required = {field.name for field in SIGNAL_SCHEMA}
-    if not required.issubset(table.columns):
-        return []
-    return table.to_pylist()
-
-
-def _candidate_rows(
-    session: fc.Session, existing: list[dict[str, Any]], limit: int
-) -> list[dict[str, Any]]:
-    articles = _source_frame(session, "article_snapshots")
-    if articles is None:
-        raise FileNotFoundError("No article snapshots were found in the public dataset")
-    articles = articles.filter(fc.col("fetch_ok"))
-    completed_ids = {
-        str(row["snapshot_id"])
-        for row in existing
-        if row.get("model") == DEEPSEEK_MODEL and row.get("prompt_version") == PROMPT_VERSION
-    }
-    if completed_ids:
-        articles = articles.filter(~fc.col("snapshot_id").is_in(sorted(completed_ids)))
-    return (
-        articles.order_by(fc.desc("fetched_at"))
-        .limit(limit)
-        .select(
-            "snapshot_id",
-            "story_id",
-            "canonical_url",
-            "fetched_at",
-            "content_sha256",
-            "article_text",
+        return Decimal("0")
+    now = datetime.now(timezone.utc)
+    total = Decimal("0")
+    seen: set[tuple[str, str, str]] = set()
+    for row in table.to_pylist():
+        content_hash = str(row.get("content_sha256") or "")
+        identity = (
+            content_hash,
+            str(row.get("prompt_version") or ""),
+            str(row.get("deepseek_response_id") or ""),
         )
-        .to_pylist()
+        if not content_hash or identity in seen:
+            continue
+        if row.get("model") != DEEPSEEK_MODEL:
+            continue
+        generated = row.get("generated_at")
+        if scope == "monthly" and (
+            generated is None or generated.year != now.year or generated.month != now.month
+        ):
+            continue
+        seen.add(identity)
+        total += Decimal(str(row.get("request_cost_usd") or 0))
+    return total
+
+
+def _batches(rows: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]]:
+    return [rows[index : index + size] for index in range(0, len(rows), size)]
+
+
+def _request(client: DeepSeekClient, batch: list[dict[str, Any]]) -> DeepSeekBatchResult:
+    return client.enrich_batch(
+        [(str(row["content_sha256"]), str(row["article_text"])) for row in batch]
     )
-
-
-def _cached_record(article: dict[str, Any], cached: dict[str, Any]) -> dict[str, Any]:
-    record = dict(cached)
-    for field in ("snapshot_id", "story_id", "canonical_url", "fetched_at", "content_sha256"):
-        record[field] = article[field]
-    record.update(
-        {
-            "deepseek_response_id": "",
-            "prompt_tokens": 0,
-            "prompt_cache_hit_tokens": 0,
-            "prompt_cache_miss_tokens": 0,
-            "completion_tokens": 0,
-            "request_cost_usd": 0.0,
-            "cache_reused": True,
-        }
-    )
-    return record
-
-
-def _new_record(article: dict[str, Any], result: DeepSeekResult) -> dict[str, Any]:
-    usage = result.usage
-    return {
-        "snapshot_id": article["snapshot_id"],
-        "story_id": article["story_id"],
-        "canonical_url": article["canonical_url"],
-        "fetched_at": article["fetched_at"],
-        "content_sha256": article["content_sha256"],
-        "model": DEEPSEEK_MODEL,
-        "prompt_version": PROMPT_VERSION,
-        **asdict(result.signals),
-        "themes": list(result.signals.themes),
-        "named_entities": list(result.signals.named_entities),
-        "generated_at": datetime.now(timezone.utc),
-        "deepseek_response_id": result.response_id,
-        "prompt_tokens": usage.prompt_tokens,
-        "prompt_cache_hit_tokens": usage.prompt_cache_hit_tokens,
-        "prompt_cache_miss_tokens": usage.prompt_cache_miss_tokens,
-        "completion_tokens": usage.completion_tokens,
-        "request_cost_usd": float(usage.cost_usd),
-        "cache_reused": False,
-    }
 
 
 def enrich(
-    limit: int,
-    output: Path,
     *,
+    limit: int,
+    batch_size: int,
+    concurrency: int,
+    checkpoint_path: Path,
+    output_dir: Path,
     maximum_cost_usd: Decimal,
+    scope: str,
+    publish: bool,
+    retry_failures: bool,
+    dataset_id: str,
     client: DeepSeekClient,
 ) -> EnrichmentReport:
-    session = create_session()
+    tables = download_dataset_tables(
+        ["data/article_snapshots", SIGNAL_PREFIX], dataset_id=dataset_id
+    )
+    article_table = tables["data/article_snapshots"]
+    signal_table = tables[SIGNAL_PREFIX]
+    if article_table is None:
+        raise FileNotFoundError(f"No article snapshots found in {dataset_id}")
+
+    prior_spend = _scope_spend(signal_table, scope)
+    scope_cap = MAX_BACKFILL_BUDGET_USD if scope == "backfill" else MAX_MONTHLY_BUDGET_USD
+    scope_remaining = max(Decimal("0"), scope_cap - prior_spend)
+    process_cap = min(maximum_cost_usd, scope_remaining)
+
+    checkpoint = SemanticCheckpoint(checkpoint_path)
     try:
-        existing = _existing_rows(session)
-        candidates = _candidate_rows(session, existing, limit)
-        content_cache = {
-            str(row["content_sha256"]): row
-            for row in existing
-            if row.get("model") == DEEPSEEK_MODEL and row.get("prompt_version") == PROMPT_VERSION
-        }
-        budget = RunBudget(maximum_cost_usd)
-        additions: list[dict[str, Any]] = []
+        remote_done = completed_hashes(
+            signal_table,
+            model=DEEPSEEK_MODEL,
+            version_field="prompt_version",
+            version=PROMPT_VERSION,
+        )
+        local_rows = [
+            row for row in checkpoint.rows() if str(row["content_sha256"]) not in remote_done
+        ]
+        published_from_checkpoint = 0
+        if publish:
+            for rows in _batches(local_rows, MAX_BATCH_SIZE):
+                table = pa.Table.from_pylist(rows, schema=SIGNAL_SCHEMA)
+                publish_shard(
+                    table,
+                    prefix=SIGNAL_PREFIX,
+                    dataset_id=dataset_id,
+                    message=f"Checkpoint {len(rows)} DeepSeek story signals",
+                )
+                published_from_checkpoint += len(rows)
+                remote_done.update(str(row["content_sha256"]) for row in rows)
+
+        done = remote_done | checkpoint.completed_hashes()
+        failed = set() if retry_failures else checkpoint.failed_hashes()
+        candidates = [
+            row
+            for row in unique_article_rows(article_table)
+            if row["content_sha256"] not in done and row["content_sha256"] not in failed
+        ]
+        selected = candidates[:limit] if limit > 0 else candidates
+        pending_batches = _batches(selected, batch_size)
+        output_dir.mkdir(parents=True, exist_ok=True)
         api_requests = 0
-        cache_reuses = 0
-        stopped_for_budget = False
+        rows_added = 0
+        failure_count = 0
+        stopped_for_budget = process_cap <= 0 and bool(pending_batches)
+        budget = RunBudget(process_cap) if process_cap > 0 else None
 
-        for article in candidates:
-            cached = content_cache.get(str(article["content_sha256"]))
-            if cached:
-                additions.append(_cached_record(article, cached))
-                cache_reuses += 1
-                continue
-
-            try:
-                budget.reserve(maximum_request_cost_usd(str(article["article_text"])))
-            except BudgetExceeded:
-                stopped_for_budget = True
+        while pending_batches and budget is not None:
+            wave: list[tuple[list[dict[str, Any]], Decimal]] = []
+            available = budget.remaining_usd
+            while pending_batches and len(wave) < concurrency:
+                batch = pending_batches[0]
+                reservation = maximum_batch_request_cost_usd(
+                    [(str(row["content_sha256"]), str(row["article_text"])) for row in batch]
+                )
+                if reservation > available:
+                    stopped_for_budget = True
+                    break
+                pending_batches.pop(0)
+                wave.append((batch, reservation))
+                available -= reservation
+            if not wave:
                 break
-            result = client.enrich(str(article["article_text"]))
-            budget.record(result.usage.cost_usd)
-            record = _new_record(article, result)
-            additions.append(record)
-            content_cache[str(article["content_sha256"])] = record
-            api_requests += 1
 
-        combined = {
-            (str(row["snapshot_id"]), str(row["model"]), str(row["prompt_version"])): row
-            for row in existing
-        }
-        for row in additions:
-            combined[(row["snapshot_id"], row["model"], row["prompt_version"])] = row
-        records = list(combined.values())
-        if records:
-            frame = session.create_dataframe(pa.Table.from_pylist(records, schema=SIGNAL_SCHEMA))
-            frame.write.save_as_table("story_signals", mode="overwrite")
-            session.catalog.set_table_description("story_signals", SIGNAL_DESCRIPTION)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            session.table("story_signals").write.parquet(output, mode="overwrite")
+            futures: dict[Future[DeepSeekBatchResult], list[dict[str, Any]]] = {}
+            with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                for batch, _reservation in wave:
+                    futures[executor.submit(_request, client, batch)] = batch
+                for future in as_completed(futures):
+                    batch = futures[future]
+                    hashes = [str(row["content_sha256"]) for row in batch]
+                    try:
+                        result = future.result()
+                    except BaseException as exc:
+                        checkpoint.record_failure(hashes, exc)
+                        failure_count += len(batch)
+                        continue
+                    rows = signal_rows_from_batch(result)
+                    checkpoint.record_rows(rows)
+                    budget.record(result.usage.cost_usd)
+                    table = pa.Table.from_pylist(rows, schema=SIGNAL_SCHEMA)
+                    local_path = output_dir / f"{result.response_id or hashes[0]}.parquet"
+                    write_parquet(table, local_path)
+                    if publish:
+                        publish_shard(
+                            table,
+                            prefix=SIGNAL_PREFIX,
+                            dataset_id=dataset_id,
+                            message=f"Checkpoint {len(rows)} DeepSeek story signals",
+                        )
+                    api_requests += 1
+                    rows_added += len(rows)
 
         return EnrichmentReport(
             model=DEEPSEEK_MODEL,
             prompt_version=PROMPT_VERSION,
-            budget_usd=float(maximum_cost_usd),
-            spent_usd=float(budget.spent_usd),
+            scope=scope,
+            process_budget_usd=float(process_cap),
+            prior_scope_spend_usd=float(prior_spend),
+            spent_usd=float(budget.spent_usd if budget else Decimal("0")),
             api_requests=api_requests,
-            cache_reuses=cache_reuses,
-            rows_added=len(additions),
-            rows_total=len(records),
+            rows_added=rows_added,
+            rows_published_from_checkpoint=published_from_checkpoint,
+            failures=failure_count,
+            remaining=max(0, len(candidates) - rows_added),
             stopped_for_budget=stopped_for_budget,
         )
     finally:
-        session.stop(skip_usage_summary=True)
+        checkpoint.close()
 
 
 def _budget(value: str) -> Decimal:
@@ -243,9 +236,15 @@ def _budget(value: str) -> Decimal:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=25)
-    parser.add_argument("--output", type=Path, default=Path("dist/story-signals.parquet"))
+    parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument("--batch-size", type=int, default=MAX_BATCH_SIZE)
+    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--checkpoint", type=Path, default=Path("dist/semantic-checkpoint.sqlite3"))
+    parser.add_argument("--output-dir", type=Path, default=Path("dist/signal-shards"))
     parser.add_argument("--report", type=Path, default=Path("dist/semantic-run.json"))
+    parser.add_argument("--dataset", default=os.getenv("BBC_NEWS_DATASET", DEFAULT_DATASET_ID))
+    parser.add_argument("--scope", choices=("backfill", "monthly"), default="monthly")
+    parser.add_argument("--retry-failures", action="store_true")
     parser.add_argument(
         "--max-cost-usd",
         type=_budget,
@@ -253,41 +252,31 @@ def main() -> None:
     )
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args()
-    if not 1 <= args.limit <= 200:
-        raise SystemExit("--limit must be between 1 and 200")
+    if args.limit < 0:
+        raise SystemExit("--limit cannot be negative; use 0 for all remaining articles")
+    if not 1 <= args.batch_size <= MAX_BATCH_SIZE:
+        raise SystemExit(f"--batch-size must be between 1 and {MAX_BATCH_SIZE}")
+    if not 1 <= args.concurrency <= 8:
+        raise SystemExit("--concurrency must be between 1 and 8")
 
     token = os.getenv("DEEPSEEK_API_KEY")
     if not token:
         raise SystemExit("DEEPSEEK_API_KEY is required for semantic enrichment")
     report = enrich(
-        args.limit,
-        args.output,
+        limit=args.limit,
+        batch_size=args.batch_size,
+        concurrency=args.concurrency,
+        checkpoint_path=args.checkpoint,
+        output_dir=args.output_dir,
         maximum_cost_usd=args.max_cost_usd,
+        scope=args.scope,
+        publish=args.publish,
+        retry_failures=args.retry_failures,
+        dataset_id=args.dataset,
         client=DeepSeekClient(token),
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(asdict(report), indent=2) + "\n")
-
-    if args.publish:
-        if not args.output.exists():
-            raise SystemExit("No story signals were produced, so nothing can be published")
-        report = EnrichmentReport(**{**asdict(report), "published": True})
-        args.report.write_text(json.dumps(asdict(report), indent=2) + "\n")
-        HfApi(token=os.getenv("HF_TOKEN")).create_commit(
-            repo_id=os.getenv("BBC_NEWS_DATASET", "AlastairH/bbc-news-logger"),
-            repo_type="dataset",
-            operations=[
-                CommitOperationAdd(
-                    path_in_repo="semantic/story-signals.parquet",
-                    path_or_fileobj=args.output,
-                ),
-                CommitOperationAdd(
-                    path_in_repo="semantic/latest-run.json",
-                    path_or_fileobj=args.report,
-                ),
-            ],
-            commit_message="Refresh DeepSeek semantic story signals",
-        )
     print(json.dumps(asdict(report), sort_keys=True))
 
 

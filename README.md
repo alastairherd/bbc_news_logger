@@ -20,7 +20,9 @@ GitHub Actions ───────────────► Hugging Face Par
        │                                   │
        │ 3-hourly marts                    ├──► Astro static research explorer
        │                                   │
-       └── daily article fetch             └──► Fenic catalog + optional MCP service
+       ├── daily article + semantic refresh ─► Fenic catalog + optional MCP service
+       │                                   │
+       └─────────────────────────────────────► Free Gradio BGE backfill worker
 ```
 
 The Git repository contains code, schemas, tests, and interface assets only. Data is published as
@@ -79,7 +81,9 @@ reconstructed front-page position, selector risk, and interpretive limits.
 | --- | --- | --- |
 | Collect BBC News observations | Hourly at `:07` | Validates both surfaces and upserts observations/run metadata to Hugging Face |
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global request-rate limiter |
+| Refresh semantic analysis | After the daily article job | Embeds and labels only new content hashes, checkpoints results, and refreshes recurring-story clusters |
 | Deploy research dashboard | Every three hours and relevant pushes | Rebuilds marts from the public dataset and deploys GitHub Pages |
+| Deploy embedding worker | Relevant pushes and manual runs | Updates the standard free-CPU Gradio Space used for the historical BGE backfill |
 | CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks/build, and Fenic's API checker |
 
 All Actions jobs use least-privilege repository permissions, locked dependencies, timeouts,
@@ -92,16 +96,39 @@ catalog and exposes bounded schema, profile, search, read, and SQL-analysis tool
 semantic enrichment command is explicit and cached; ordinary MCP exploration does not call a
 language model.
 
-The Docker service is deployment-ready but not automatically hosted. Hugging Face currently
-requires a paid runtime for Docker Spaces. The static explorer remains fully functional without
-the sidecar. See the service README for local and Docker instructions.
+The Docker service remains available for local or separately hosted MCP use. The free Hugging Face
+deployment is deliberately a standard Gradio Space instead: it runs BGE Small on CPU and writes
+completed embedding batches back to the dataset. Fenic is not required for that worker or for the
+static explorer.
 
 Semantic enrichment runs explicitly on a local machine with
-`./scripts/refresh_semantics.sh`. It reads the current semantic table from Hugging Face, bills only
-new snapshots or changed content, and uploads the updated table and run manifest back to the
-dataset. A hard `$1.00` per-run ceiling, bounded inputs and outputs, sequential requests, and
-content-hash caching limit spend. Ordinary exploration never invokes the model, and generated
-Parquet is not committed to Git.
+`./scripts/refresh_semantics.sh`. It bills only new content hashes and writes each successful
+eight-article response to a synchronous SQLite checkpoint before starting more paid work. Up to
+four requests run concurrently, and each completed batch is uploaded as an immutable Parquet
+shard. A hard `$1.00` process ceiling, `$7.50` historical ceiling, and `$1.00` monthly incremental
+ceiling limit spend. Ambiguous network failures are recorded without automatic paid retries.
+
+The resulting Signals dashboard shows theme, topic, story-form, and event-type trends plus
+recurring-story timelines. Coverage is always visible because historical enrichment can take more
+than one run.
+
+## Semantic backfill
+
+The Raspberry Pi does not run the embedding model. Deploy `spaces/bge-worker` to the
+`AlastairH/bbc-news-semantic-backfill` Space using the `Deploy Hugging Face embedding worker`
+workflow. The deployment workflow copies its write-capable `HF_TOKEN` into the Space secrets.
+The worker uses free CPU Basic compute and resumes from Parquet shards already present in the
+dataset. No DeepSeek key is sent to the Space.
+
+For a paid-label backfill from this machine, each invocation processes up to the requested number
+of missing article versions and stops before its budget boundary:
+
+```bash
+./scripts/refresh_semantics.sh 1000
+```
+
+Use `--monthly` for the regular monthly ledger, or `--local-only` to retain checkpoints and shards
+without publishing them.
 
 ## Repository layout
 
@@ -110,6 +137,7 @@ src/bbc_news_logger/   collector, schemas, publication, migration, marts
 tests/                 parser, storage, migration, and mart contract tests
 web/                   static Astro research interface
 services/fenic/        optional Fenic catalog, enrichment, MCP service, Dockerfile
+spaces/bge-worker/     standard free-CPU Hugging Face embedding worker
 datasets/              Hugging Face dataset cards
 .github/workflows/     collection, publication, CI, and Pages deployment
 ```

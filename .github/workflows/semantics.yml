@@ -1,0 +1,82 @@
+name: Refresh semantic analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Maximum new article versions to process; 0 means the full backlog
+        required: false
+        default: "500"
+        type: string
+      scope:
+        description: DeepSeek cumulative budget scope
+        required: false
+        default: monthly
+        type: choice
+        options: [monthly, backfill]
+  workflow_run:
+    workflows: [Fetch daily article snapshots]
+    types: [completed]
+
+concurrency:
+  group: bbc-news-semantics
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.DEEPSEEK_API }}
+      SEMANTIC_LIMIT: ${{ inputs.limit || '500' }}
+      SEMANTIC_SCOPE: ${{ inputs.scope || 'monthly' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/huggingface
+          key: bge-small-${{ runner.os }}-${{ runner.arch }}-v1
+      - name: Install the locked embedding runtime
+        run: uv sync --frozen --no-dev --extra embedding
+      - name: Embed new article versions
+        run: >-
+          uv run --no-sync python -m services.fenic.embed
+          --limit "$SEMANTIC_LIMIT" --batch-size 128 --publish
+      - name: Label new article versions within the budget
+        shell: bash
+        run: |
+          if [[ -z "$DEEPSEEK_API_KEY" ]]; then
+            echo "::notice::DEEPSEEK_API_KEY is not configured; embeddings were still refreshed."
+            exit 0
+          fi
+          uv run --no-sync python -m services.fenic.enrich \
+            --limit "$SEMANTIC_LIMIT" \
+            --batch-size 8 \
+            --concurrency 4 \
+            --scope "$SEMANTIC_SCOPE" \
+            --publish
+      - name: Rebuild recurring-story clusters
+        shell: bash
+        run: |
+          if ! uv run --no-sync python -m services.fenic.cluster --publish; then
+            echo "::notice::Clusters remain unchanged until both signals and embeddings are available."
+          fi
+      - name: Retain run manifests and local paid-call checkpoint
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: semantic-run-${{ github.run_id }}
+          path: |
+            dist/*-run.json
+            dist/semantic-checkpoint.sqlite3*
+          if-no-files-found: ignore
+          retention-days: 30

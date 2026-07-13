@@ -34,6 +34,9 @@ def test_build_marts_produces_static_research_payloads(tmp_path) -> None:
         "rank-series.json",
         "daily.json",
         "surface-lag.json",
+        "semantic-trends.json",
+        "recurring-events.json",
     }
+    assert manifest["semantics"]["coveragePercent"] == 0.0
     lag = json.loads((tmp_path / "surface-lag.json").read_text())
     assert lag[0]["lag_minutes"] == 120
