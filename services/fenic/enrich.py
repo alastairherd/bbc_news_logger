@@ -104,15 +104,7 @@ def _candidate_rows(
         if row.get("model") == DEEPSEEK_MODEL and row.get("prompt_version") == PROMPT_VERSION
     }
     if completed_ids:
-        completed = session.create_dataframe(
-            [{"_completed_snapshot_id": value} for value in completed_ids]
-        )
-        articles = articles.join(
-            completed,
-            left_on=fc.col("snapshot_id"),
-            right_on=fc.col("_completed_snapshot_id"),
-            how="left",
-        ).filter(fc.col("_completed_snapshot_id").is_null())
+        articles = articles.filter(~fc.col("snapshot_id").is_in(sorted(completed_ids)))
     return (
         articles.order_by(fc.desc("fetched_at"))
         .limit(limit)
