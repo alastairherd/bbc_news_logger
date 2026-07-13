@@ -74,7 +74,7 @@ import Layout from "../layouts/Layout.astro";
       story_id: string;
     }
 
-    const base = import.meta.env.BASE_URL;
+    const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
     let stories: Story[] = [];
     let rankSeries: RankPoint[] = [];

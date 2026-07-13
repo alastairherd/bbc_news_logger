@@ -1,5 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
+
+const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
 ---
 
 <Layout
@@ -83,7 +85,7 @@ import Layout from "../layouts/Layout.astro";
           <p class="eyebrow">Designed for inquiry</p>
           <h2 id="questions-heading">Questions the record can support</h2>
         </div>
-        <a class="button secondary" href={`${import.meta.env.BASE_URL}explore/`}>Open the explorer <span aria-hidden="true">→</span></a>
+        <a class="button secondary" href={`${base}explore/`}>Open the explorer <span aria-hidden="true">→</span></a>
       </div>
       <div class="questions">
         <article class="question">
@@ -119,7 +121,7 @@ import Layout from "../layouts/Layout.astro";
       storyCount: number;
     }
 
-    const base = import.meta.env.BASE_URL;
+    const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const number = new Intl.NumberFormat("en-GB");
     const shortDate = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 
