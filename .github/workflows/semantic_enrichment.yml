@@ -8,11 +8,6 @@ on:
         required: true
         default: "25"
         type: string
-      model:
-        description: OpenRouter model identifier
-        required: true
-        default: "nvidia/nemotron-3-ultra-550b-a55b:free"
-        type: string
 
 concurrency:
   group: fenic-semantic-enrichment
@@ -34,10 +29,9 @@ jobs:
       - run: uv sync --frozen --extra semantic
       - name: Extract typed story signals and publish them
         run: >-
-          uv run --no-sync python services/fenic/bootstrap.py
-          && uv run --no-sync python services/fenic/enrich.py
-          --limit "${{ inputs.limit }}" --publish
+          uv run --no-sync python -m services.fenic.bootstrap
+          && uv run --no-sync python -m services.fenic.enrich
+          --limit "${{ inputs.limit }}" --max-cost-usd 1.00 --publish
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_MODEL: ${{ inputs.model }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

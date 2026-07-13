@@ -81,7 +81,7 @@ reconstructed front-page position, selector risk, and interpretive limits.
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global request-rate limiter |
 | Deploy research dashboard | Every three hours and relevant pushes | Rebuilds marts from the public dataset and deploys GitHub Pages |
 | CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks/build, and Fenic's API checker |
-| Refresh Fenic semantic signals | Manual only | Runs the bounded OpenRouter/Fenic enrichment and publishes its Parquet output |
+| Refresh Fenic semantic signals | Manual only | Runs bounded DeepSeek enrichment and publishes its Fenic Parquet output |
 
 All Actions jobs use least-privilege repository permissions, locked dependencies, timeouts,
 concurrency groups, and caches. They do not commit generated data back to Git.
@@ -97,9 +97,9 @@ The Docker service is deployment-ready but not automatically hosted. Hugging Fac
 requires a paid runtime for Docker Spaces. The static explorer remains fully functional without
 the sidecar. See the service README for local and Docker instructions.
 
-The supplied OpenRouter key is installed as an encrypted Actions secret, but its provider-side
-total limit is currently `0`; semantic enrichment will fail its preflight until that limit is
-raised. No paid inference is attempted automatically.
+Semantic enrichment uses the native `deepseek-v4-flash` API only when the manual workflow is
+dispatched. A hard `$1.00` per-run ceiling, bounded inputs and outputs, sequential requests, and
+content-hash caching limit spend. Ordinary exploration never invokes the model.
 
 ## Repository layout
 

@@ -10,7 +10,7 @@ the public dataset, and the GitHub Pages explorer continue working.
 
 ```bash
 uv sync --extra semantic
-uv run --extra semantic python services/fenic/bootstrap.py
+uv run --extra semantic python -m services.fenic.bootstrap
 uv run --extra semantic uvicorn services.fenic.serve:app --host 0.0.0.0 --port 7860
 ```
 
@@ -21,24 +21,26 @@ model.
 Semantic enrichment is an explicit batch operation:
 
 ```bash
-export OPENROUTER_API_KEY=...
-uv run --extra semantic python services/fenic/enrich.py --limit 25
+export DEEPSEEK_API_KEY=...
+uv run --extra semantic python -m services.fenic.enrich --limit 25 --max-cost-usd 1.00
 ```
 
-It uses Fenic's `semantic.map` followed by deterministic typed field extraction and defaults to the
-free `nvidia/nemotron-3-ultra-550b-a55b:free` route. Override with `OPENROUTER_MODEL`. Nemotron's
-optional reasoning is disabled for this bounded extraction task, and tool-based structured output is
-preferred for future typed semantic operators. Results are cached by Fenic and saved as the
-`story_signals` catalog table, which is exposed automatically on the next service start.
+For GitHub Actions, store the same credential in the repository secret
+`DEEPSEEK_API_KEY`. Do not put it in the workflow or commit it to the repository.
 
-Fenic 0.10 constructs its OpenRouter client through OpenAI SDK 2.45, which also insists on an
-`OPENAI_API_KEY`. The bootstrap mirrors `OPENROUTER_API_KEY` into that variable in-process; requests
-still use Fenic's OpenRouter base URL and authorization header.
+It calls DeepSeek's native OpenAI-compatible API with `deepseek-v4-flash`, validates the JSON, and
+then stores the typed result in Fenic. This boundary is intentional because Fenic 0.10 does not have
+a first-class DeepSeek model provider. Fenic still owns the catalog, Parquet output, SQL analysis,
+and MCP tools.
 
-Fenic 0.10 sends `max_completion_tokens`, while Nemotron advertises `max_tokens`. The bootstrap
-translates that compatibility boundary in-process and keeps output capped at 256 tokens while this
-exact Fenic version is pinned. The enrichment command preflights the OpenRouter key and exits with a
-clear error when its configured total limit is exhausted.
+Each result includes topic, reusable themes, summary, entities, event label/type, and story form.
+Thinking is disabled, input is capped at 32,000 UTF-8 bytes, output is capped at 256 tokens, and
+requests run sequentially without automatic retries. Content hashes avoid repeat billing.
+
+The process calculates cost from DeepSeek's returned token counters and writes a run manifest to
+`dist/semantic-run.json`. The budget defaults to `$1.00` and the code rejects any higher value, even
+if a workflow or environment variable tries to raise it. It reserves a conservative worst-case
+amount before each request and stops before the next request could cross the remaining budget.
 
 ## Deployment
 
