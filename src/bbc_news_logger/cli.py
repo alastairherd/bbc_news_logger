@@ -14,6 +14,7 @@ from pathlib import Path
 from huggingface_hub import HfApi
 
 from .articles import ArticleTarget, fetch_articles
+from .compaction import compact_remote_dataset, temporary_output
 from .config import DEFAULT_DATASET_ID, DEFAULT_RAW_DATASET_ID
 from .marts import build_remote_marts
 from .migration import build_migration
@@ -113,6 +114,16 @@ def command_build_marts(args: argparse.Namespace) -> None:
     print(json.dumps(manifest, sort_keys=True))
 
 
+def command_compact(args: argparse.Namespace) -> None:
+    output = Path(args.output) if args.output else temporary_output()
+    report = compact_remote_dataset(
+        output,
+        dataset_id=args.dataset,
+        publish=args.publish,
+    )
+    print(json.dumps(report, sort_keys=True))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bbc-news")
     parser.set_defaults(func=lambda _: parser.print_help())
@@ -150,6 +161,14 @@ def build_parser() -> argparse.ArgumentParser:
     marts.add_argument("--output", default="web/public/data")
     marts.add_argument("--dataset", default=DEFAULT_DATASET_ID)
     marts.set_defaults(func=command_build_marts)
+
+    compact = subcommands.add_parser(
+        "compact-dataset", help="Compact append-only Hugging Face Parquet shards"
+    )
+    compact.add_argument("--output")
+    compact.add_argument("--publish", action="store_true")
+    compact.add_argument("--dataset", default=DEFAULT_DATASET_ID)
+    compact.set_defaults(func=command_compact)
     return parser
 
 
