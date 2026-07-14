@@ -115,12 +115,19 @@ import Layout from "../layouts/Layout.astro";
           <h2 id="trend-heading">Inspect a signal over time</h2>
           <p>Counts are fetched article versions, not audience size. The computed findings above are the starting point; this chart exposes the underlying daily series.</p>
         </div>
-        <form class="signals-controls" id="trend-filters">
+        <form class="signals-controls" id="trend-filters" hidden>
           <div class="field"><label for="dimension">Group by</label><select id="dimension" name="dimension"><option value="theme">Theme</option><option value="topic">Topic</option><option value="story_form">Story form</option><option value="event_type">Event type</option></select></div>
           <div class="field"><label for="signal-value">Signal</label><select id="signal-value" name="value"><option>Loading…</option></select></div>
         </form>
       </div>
-      <figure class="trend-panel">
+      <div class="deferred-tool" id="trend-loader">
+        <div>
+          <strong>Open the detailed trend explorer</strong>
+          <p>This downloads the multi-megabyte daily trend mart only when you ask for it.</p>
+        </div>
+        <button class="button secondary" id="load-trends" type="button">Load trends</button>
+      </div>
+      <figure class="trend-panel" id="trend-explorer" hidden>
         <figcaption id="trend-caption">Loading semantic trend mart…</figcaption>
         <svg id="trend-chart" class="trend-chart" role="img" aria-labelledby="trend-caption"></svg>
         <div class="table-wrap trend-table-wrap"><table><caption class="sr-only">Daily counts for the selected semantic signal</caption><thead><tr><th>Date</th><th>Articles</th></tr></thead><tbody id="trend-table"><tr><td colspan="2" class="loading">Loading trend data…</td></tr></tbody></table></div>
@@ -130,9 +137,16 @@ import Layout from "../layouts/Layout.astro";
     <section class="signals-section" aria-labelledby="recurring-heading">
       <div class="signals-heading">
         <div><p class="context-label">Conservative event matching</p><h2 id="recurring-heading">Stories that return</h2><p>Every cross-article link requires embedding similarity plus compatible event labels or named entities.</p></div>
-        <div class="field event-filter"><label for="event-query">Filter clusters</label><input id="event-query" type="search" placeholder="Search events or themes" autocomplete="off" /></div>
+        <div class="field event-filter" id="event-filter" hidden><label for="event-query">Filter clusters</label><input id="event-query" type="search" placeholder="Search events or themes" autocomplete="off" /></div>
       </div>
-      <div class="event-explorer">
+      <div class="deferred-tool" id="event-loader">
+        <div>
+          <strong>Open the recurring-story explorer</strong>
+          <p>This downloads full cluster timelines only when you ask for them.</p>
+        </div>
+        <button class="button secondary" id="load-events" type="button">Load recurring stories</button>
+      </div>
+      <div class="event-explorer" id="event-explorer" hidden>
         <div class="event-index">
           <div class="event-pagination">
             <span id="event-page-status" aria-live="polite">Loading recurring stories…</span>
@@ -149,8 +163,6 @@ import Layout from "../layouts/Layout.astro";
   </div>
 
   <script>
-    import SemanticSearchWorker from "../workers/semantic-search.worker?worker";
-
     interface TrendRow { observed_date: string; dimension: string; value: string; article_count: number }
     interface EventArticle { story_id: string; title: string; url: string; fetched_at: string; best_position: number | null; surfaces: string[] }
     interface EventCluster { cluster_id: string; label: string; event_type: string; themes: string[]; first_seen: string; last_seen: string; article_count: number; version_count: number; articles: EventArticle[] }
@@ -195,7 +207,19 @@ Every substantive claim must cite at least one supplied source. Do not invent so
     const control = (selector: string): HTMLInputElement | HTMLSelectElement => { const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector); if (!result) throw new Error(`Missing control: ${selector}`); return result; };
     const label = (value: string) => value.replaceAll("_", " ");
 
-    const semanticWorker = new SemanticSearchWorker();
+    let semanticWorker: Worker | null = null;
+    let semanticWorkerLoad: Promise<Worker> | null = null;
+
+    function getSemanticWorker(): Promise<Worker> {
+      if (semanticWorker) return Promise.resolve(semanticWorker);
+      if (semanticWorkerLoad) return semanticWorkerLoad;
+      semanticWorkerLoad = import("../workers/semantic-search.worker?worker").then(({ default: SemanticSearchWorker }) => {
+        semanticWorker = new SemanticSearchWorker();
+        semanticWorker.addEventListener("message", handleSemanticMessage);
+        return semanticWorker;
+      });
+      return semanticWorkerLoad;
+    }
 
     function startSemanticSearch() {
       if (semanticStarted) return;
@@ -203,12 +227,16 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       const bar = document.querySelector<HTMLProgressElement>("#model-progress");
       if (bar) bar.hidden = false;
       setModelState("Downloading the semantic index…");
-      semanticWorker.postMessage({
-        type: "init",
-        metadataUrl: new URL(`${base}data/semantic-documents.json`, location.href).href,
-        vectorsUrl: new URL(`${base}data/semantic-vectors.i8`, location.href).href,
-        loadModel: true,
-      });
+      void getSemanticWorker().then((worker) => worker.postMessage({
+          type: "init",
+          metadataUrl: new URL(`${base}data/semantic-documents.json`, location.href).href,
+          vectorsUrl: new URL(`${base}data/semantic-vectors.i8`, location.href).href,
+          loadModel: true,
+        })).catch(() => {
+          semanticStarted = false;
+          setModelState("Semantic search could not start", "error");
+          element("#search-summary").textContent = "The browser could not start the local semantic worker.";
+        });
     }
 
     function setModelState(message: string, state: "loading" | "ready" | "error" = "loading") {
@@ -240,7 +268,7 @@ Every substantive claim must cite at least one supplied source. Do not invent so
         const panel = element("#research-answer"); panel.hidden = false;
         panel.innerHTML = `<p class="research-state">Retrieving the strongest archive evidence before asking DeepSeek…</p>`;
       }
-      semanticWorker.postMessage({ type: "search", requestId, query, filters: { surface: control("#semantic-surface").value, topic: control("#semantic-topic").value, storyForm: control("#semantic-form").value } });
+      void getSemanticWorker().then((worker) => worker.postMessage({ type: "search", requestId, query, filters: { surface: control("#semantic-surface").value, topic: control("#semantic-topic").value, storyForm: control("#semantic-form").value } }));
       const params = new URLSearchParams(location.search); params.set("q", query); history.replaceState(null, "", `${location.pathname}?${params}`);
     }
 
@@ -377,7 +405,7 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       }
     }
 
-    semanticWorker.addEventListener("message", (event: MessageEvent) => {
+    function handleSemanticMessage(event: MessageEvent) {
       const message = event.data;
       if (message.type === "status") setModelState(message.message);
       if (message.type === "index-ready") {
@@ -405,7 +433,7 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       if (message.type === "search-results" && message.requestId === requestId) renderSearchResults(message.results, message.mode);
       if (message.type === "fatal-error") { setModelState("Semantic index unavailable", "error"); element("#search-summary").textContent = message.message; }
       if (message.type === "search-error" && message.requestId === requestId) { element("#search-summary").textContent = message.message; element("#semantic-results").innerHTML = `<p class="loading">Search could not be completed.</p>`; }
-    });
+    }
 
     element("#semantic-search-form").addEventListener("submit", (event) => {
       event.preventDefault();
@@ -432,7 +460,7 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       element("#surface-differences").innerHTML = findings.surfaceDifferences.length ? findings.surfaceDifferences.slice(0, 6).map((row) => `<div class="finding-row"><strong>${escape(row.theme)}</strong><span class="change ${row.differencePercentagePoints >= 0 ? "positive" : "negative"}">${row.differencePercentagePoints >= 0 ? "+" : ""}${row.differencePercentagePoints.toFixed(2)} pp</span><small>${row.differencePercentagePoints >= 0 ? "more common in Most Read" : "more common on the front page"}</small></div>`).join("") : `<p class="loading">Surface differences need more labelled stories.</p>`;
       element("#story-forms").innerHTML = findings.storyForms.length ? findings.storyForms.slice(0, 7).map((row) => `<div class="form-row"><span>${escape(label(row.storyForm))}</span><span class="form-bar"><i style="width:${Math.min(row.share, 100)}%"></i></span><strong>${row.share.toFixed(1)}%</strong></div>`).join("") : `<p class="loading">Story-form labels are not available yet.</p>`;
       element("#returning-findings").innerHTML = findings.returningStories.length ? findings.returningStories.slice(0, 5).map((event) => `<button type="button" class="finding-event" data-event-id="${escape(event.cluster_id)}"><strong>${escape(event.label)}</strong><span>${event.article_count} articles · latest ${date.format(new Date(event.last_seen))}</span></button>`).join("") : `<p class="loading">No conservative recurring-story clusters yet.</p>`;
-      element("#returning-findings").querySelectorAll<HTMLButtonElement>("button[data-event-id]").forEach((button) => button.addEventListener("click", () => { void loadEventData().then(() => { selectEvent(button.dataset.eventId ?? ""); document.querySelector("#recurring-heading")?.scrollIntoView(); }); }));
+      element("#returning-findings").querySelectorAll<HTMLButtonElement>("button[data-event-id]").forEach((button) => button.addEventListener("click", () => { void revealEventData().then(() => { selectEvent(button.dataset.eventId ?? ""); document.querySelector("#recurring-heading")?.scrollIntoView(); }); }));
     }
 
     function valuesForDimension(dimension: string): string[] { const totals = new Map<string, number>(); trends.filter((row) => row.dimension === dimension).forEach((row) => totals.set(row.value, (totals.get(row.value) ?? 0) + row.article_count)); return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value]) => value); }
@@ -490,13 +518,23 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       });
       return eventLoad;
     }
-    function loadNearViewport(target: Element | null, load: () => Promise<void>) {
-      if (!target || !("IntersectionObserver" in window)) { void load(); return; }
-      const observer = new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) { observer.disconnect(); void load(); }
-      }, { rootMargin: "400px 0px" });
-      observer.observe(target);
+
+    function revealTrendData(): Promise<void> {
+      element("#trend-loader").hidden = true;
+      element("#trend-filters").hidden = false;
+      element("#trend-explorer").hidden = false;
+      return loadTrendData();
     }
+
+    function revealEventData(): Promise<void> {
+      element("#event-loader").hidden = true;
+      element("#event-filter").hidden = false;
+      element("#event-explorer").hidden = false;
+      return loadEventData();
+    }
+    element("#load-trends").addEventListener("click", () => void revealTrendData());
+    element("#load-events").addEventListener("click", () => void revealEventData());
+
     Promise.all([
       fetch(`${base}data/manifest.json`).then((response) => response.json()),
       fetch(`${base}data/semantic-findings.json`).then((response) => response.json()),
@@ -505,8 +543,6 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       const semantic = manifest.semantics ?? { signalCount: 0, articleVersionCount: 0, coveragePercent: 0, recurringEventCount: 0 };
       element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}%`; element("#signal-count").textContent = number.format(semantic.signalCount); element("#event-count").textContent = number.format(semantic.recurringEventCount); element("#coverage-note").textContent = semantic.coveragePercent < 100 ? `Historical enrichment is in progress. ${number.format(semantic.articleVersionCount - semantic.signalCount)} article versions remain.` : "All currently archived article versions have structured signals.";
       const query = new URLSearchParams(location.search).get("q"); if (query) { control("#semantic-query").value = query; element("#search-summary").textContent = "The linked question is ready. Choose Ask the archive or Find sources only to run semantic search."; }
-      loadNearViewport(document.querySelector("#trend-heading"), loadTrendData);
-      loadNearViewport(document.querySelector("#recurring-heading"), loadEventData);
     }).catch(() => { element("#coverage").textContent = "Unavailable"; element("#coverage-note").textContent = "The static semantic marts could not be loaded."; });
   </script>
 </Layout>

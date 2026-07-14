@@ -35,6 +35,11 @@ The historical migration preserved 171,887 position observations and 18,892 arti
 1,223 audited destination files. See `migration/manifest.json` in the curated dataset for source
 and destination hashes, row counts, and the source commit.
 
+The low-cost data-app architecture was informed by Spicy Data's
+[“A live data app for $0: DuckDB, Astro, and no BI tool”](https://spicydata.ai/blog/zero-dollar-data-app/).
+Its pull → DuckDB marts → Astro interface → scheduled refresh pattern is a useful reference for
+building a bespoke public data product without a warehouse or per-seat BI service.
+
 ## Local development
 
 Requires Python 3.10–3.12 and [uv](https://docs.astral.sh/uv/). The dashboard requires Node 22.

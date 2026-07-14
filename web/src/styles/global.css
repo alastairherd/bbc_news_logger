@@ -268,6 +268,10 @@
   .finding-event strong, .finding-event span { display: block; }
   .finding-event strong { font-size: .78rem; line-height: 1.3; }
   .finding-event span { margin-top: .2rem; color: var(--muted); font-size: .68rem; }
+  .deferred-tool { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; min-height: 8rem; padding: 1.35rem 1.5rem; border: 1px solid var(--line-strong); background: var(--paper-strong); }
+  .deferred-tool strong { display: block; }
+  .deferred-tool p { max-width: 58ch; margin-top: .35rem; color: var(--muted); font-size: .8rem; }
+  .deferred-tool .button { flex: none; }
   .trend-panel { background: var(--dark); color: white; padding: 1.5rem; }
   .trend-panel figcaption { color: var(--dark-muted); font-size: .84rem; padding-bottom: 1rem; border-bottom: 1px solid var(--dark-line); }
   .trend-chart { width: 100%; height: 16rem; margin-top: 1rem; }
@@ -366,6 +370,8 @@
   .findings-grid { grid-template-columns: 1fr 1fr; }
   .finding-panel:nth-child(2) { border-right: 0; }
   .finding-panel:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+  .deferred-tool { align-items: stretch; flex-direction: column; }
+  .deferred-tool .button { align-self: start; }
   .event-explorer { grid-template-columns: 1fr; }
   .event-index { border-right: 0; border-bottom: 1px solid var(--line-strong); }
   .event-list { max-height: 24rem; }
