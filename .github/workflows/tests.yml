@@ -44,6 +44,18 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  research-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: workers/research
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm test
+
   fenic-api:
     runs-on: ubuntu-latest
     steps:

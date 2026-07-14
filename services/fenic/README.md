@@ -45,7 +45,8 @@ are sent in one request. Four requests may run concurrently. Content hashes avoi
 
 The process calculates cost from DeepSeek's returned token counters and writes a run manifest to
 `dist/semantic-run.json`. Each successful response is committed to a synchronous SQLite WAL before
-the next wave starts and is uploaded as an immutable Parquet shard when publishing is enabled.
+the next wave starts. Publishing buffers those responses into immutable 256-row Parquet shards,
+reducing Hugging Face commits while retaining per-response paid-call recovery locally.
 The budget defaults to `$1.00` and the code rejects any higher process value. Persistent dataset
 rows enforce the separate `$7.50` backfill and `$1.00` monthly ledgers.
 
@@ -54,6 +55,6 @@ rows enforce the separate `$7.50` backfill and `$1.00` monthly ledgers.
 The Docker image listens on port `7860` and persists its catalog beneath `/data`. A public service
 should set `FENIC_DB_PATH=/data` and mount durable storage there.
 
-This Docker image is not used by the free Hugging Face deployment. Build and run it locally or on
-a separate Docker host when an HTTP MCP service is needed. The historical BGE backfill uses the
-standard Gradio application under `spaces/bge-worker`, which fits the available free CPU runtime.
+Build and run this image locally or on a separate Docker host when an HTTP MCP service is needed.
+The historical BGE backfill does not require this image or a hosted Fenic service; it runs directly
+on a GitHub-hosted CPU runner and checkpoints vectors to the Hugging Face dataset.

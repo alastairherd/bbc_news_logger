@@ -33,12 +33,14 @@ from bbc_news_logger.semantics import (
     download_dataset_tables,
     publish_shard,
     signal_rows_from_batch,
+    take_ready_shard,
     unique_article_rows,
 )
 from bbc_news_logger.storage import write_parquet
 
 MAX_BACKFILL_BUDGET_USD = Decimal("7.50")
 MAX_MONTHLY_BUDGET_USD = Decimal("1.00")
+REMOTE_SIGNAL_SHARD_ROWS = MAX_BATCH_SIZE * 32
 
 
 @dataclass(frozen=True)
@@ -94,6 +96,38 @@ def _request(client: DeepSeekClient, batch: list[dict[str, Any]]) -> DeepSeekBat
     )
 
 
+def _publish_ready_rows(
+    rows: list[dict[str, Any]],
+    *,
+    dataset_id: str,
+    rows_added: int,
+    force: bool,
+) -> None:
+    while shard_rows := take_ready_shard(
+        rows, shard_size=REMOTE_SIGNAL_SHARD_ROWS, force=force
+    ):
+        table = pa.Table.from_pylist(shard_rows, schema=SIGNAL_SCHEMA)
+        remote_path = publish_shard(
+            table,
+            prefix=SIGNAL_PREFIX,
+            dataset_id=dataset_id,
+            message=f"Checkpoint {len(shard_rows)} DeepSeek story signals",
+        )
+        print(
+            json.dumps(
+                {
+                    "event": "deepseek_remote_checkpoint",
+                    "rows_in_shard": len(shard_rows),
+                    "rows_added": rows_added,
+                    "rows_waiting_for_publish": len(rows),
+                    "path": remote_path,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+
+
 def enrich(
     *,
     limit: int,
@@ -134,7 +168,7 @@ def enrich(
         ]
         published_from_checkpoint = 0
         if publish:
-            for rows in _batches(local_rows, MAX_BATCH_SIZE):
+            for rows in _batches(local_rows, REMOTE_SIGNAL_SHARD_ROWS):
                 table = pa.Table.from_pylist(rows, schema=SIGNAL_SCHEMA)
                 publish_shard(
                     table,
@@ -153,11 +187,28 @@ def enrich(
             if row["content_sha256"] not in done and row["content_sha256"] not in failed
         ]
         selected = candidates[:limit] if limit > 0 else candidates
+        print(
+            json.dumps(
+                {
+                    "event": "deepseek_start",
+                    "scope": scope,
+                    "prior_scope_spend_usd": float(prior_spend),
+                    "process_budget_usd": float(process_cap),
+                    "candidates": len(candidates),
+                    "selected": len(selected),
+                    "batch_size": batch_size,
+                    "concurrency": concurrency,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
         pending_batches = _batches(selected, batch_size)
         output_dir.mkdir(parents=True, exist_ok=True)
         api_requests = 0
         rows_added = 0
         failure_count = 0
+        rows_waiting_for_publish: list[dict[str, Any]] = []
         stopped_for_budget = process_cap <= 0 and bool(pending_batches)
         budget = RunBudget(process_cap) if process_cap > 0 else None
 
@@ -179,6 +230,7 @@ def enrich(
                 break
 
             futures: dict[Future[DeepSeekBatchResult], list[dict[str, Any]]] = {}
+            wave_rows: list[dict[str, Any]] = []
             with ThreadPoolExecutor(max_workers=concurrency) as executor:
                 for batch, _reservation in wave:
                     futures[executor.submit(_request, client, batch)] = batch
@@ -197,15 +249,38 @@ def enrich(
                     table = pa.Table.from_pylist(rows, schema=SIGNAL_SCHEMA)
                     local_path = output_dir / f"{result.response_id or hashes[0]}.parquet"
                     write_parquet(table, local_path)
-                    if publish:
-                        publish_shard(
-                            table,
-                            prefix=SIGNAL_PREFIX,
-                            dataset_id=dataset_id,
-                            message=f"Checkpoint {len(rows)} DeepSeek story signals",
-                        )
+                    wave_rows.extend(rows)
                     api_requests += 1
                     rows_added += len(rows)
+                    print(
+                        json.dumps(
+                            {
+                                "event": "deepseek_response_checkpoint",
+                                "api_requests": api_requests,
+                                "rows_added": rows_added,
+                                "response_rows": len(rows),
+                                "spent_usd": float(budget.spent_usd),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+            if publish and wave_rows:
+                rows_waiting_for_publish.extend(wave_rows)
+                _publish_ready_rows(
+                    rows_waiting_for_publish,
+                    dataset_id=dataset_id,
+                    rows_added=rows_added,
+                    force=False,
+                )
+
+        if publish:
+            _publish_ready_rows(
+                rows_waiting_for_publish,
+                dataset_id=dataset_id,
+                rows_added=rows_added,
+                force=True,
+            )
 
         return EnrichmentReport(
             model=DEEPSEEK_MODEL,

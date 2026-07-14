@@ -8,6 +8,7 @@ import math
 import os
 import sqlite3
 import tempfile
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from typing import Any, Protocol
 import pyarrow as pa
 import pyarrow.parquet as pq
 from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub.errors import HfHubHTTPError
 
 from .config import DEFAULT_DATASET_ID
 from .deepseek import DEEPSEEK_MODEL, PROMPT_VERSION, DeepSeekBatchResult
@@ -27,6 +29,8 @@ EMBEDDING_MODEL_REVISION = "main"
 EMBEDDING_INPUT_VERSION = "headline-body-lead-v1"
 EMBEDDING_DIMENSIONS = 384
 EMBEDDING_TEXT_CHARACTERS = 4_000
+HF_UPLOAD_MAX_ATTEMPTS = 2
+HF_COMMIT_RATE_LIMIT_DELAY_SECONDS = 3_600
 
 SIGNAL_PREFIX = "semantic/signals"
 EMBEDDING_PREFIX = "semantic/embeddings"
@@ -95,7 +99,11 @@ def download_dataset_tables(
         snapshot_download(
             repo_id=dataset_id,
             repo_type="dataset",
-            allow_patterns=[f"{prefix}/**/*.parquet" for prefix in prefixes],
+            allow_patterns=[
+                pattern
+                for prefix in prefixes
+                for pattern in (f"{prefix}/*.parquet", f"{prefix}/**/*.parquet")
+            ],
             token=token or os.getenv("HF_TOKEN"),
             max_workers=8,
         )
@@ -228,14 +236,58 @@ def publish_shard(
     path = shard_path(prefix, rows)
     with tempfile.TemporaryDirectory(prefix="bbc-news-semantic-shard-") as tmp:
         local = write_parquet(table, Path(tmp) / "shard.parquet")
-        HfApi(token=token or os.getenv("HF_TOKEN")).upload_file(
-            repo_id=dataset_id,
-            repo_type="dataset",
-            path_or_fileobj=local,
-            path_in_repo=path,
-            commit_message=message,
-        )
+        api = HfApi(token=token or os.getenv("HF_TOKEN"))
+        for attempt in range(1, HF_UPLOAD_MAX_ATTEMPTS + 1):
+            try:
+                api.upload_file(
+                    repo_id=dataset_id,
+                    repo_type="dataset",
+                    path_or_fileobj=local,
+                    path_in_repo=path,
+                    commit_message=message,
+                )
+                break
+            except HfHubHTTPError as exc:
+                response = exc.response
+                if (
+                    response is None
+                    or response.status_code != 429
+                    or attempt == HF_UPLOAD_MAX_ATTEMPTS
+                ):
+                    raise
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    delay = max(1, int(float(retry_after or 0)))
+                except ValueError:
+                    delay = 60
+                if "repository commits" in str(exc).lower():
+                    delay = max(delay, HF_COMMIT_RATE_LIMIT_DELAY_SECONDS)
+                print(
+                    json.dumps(
+                        {
+                            "event": "hf_upload_retry",
+                            "attempt": attempt,
+                            "delay_seconds": delay,
+                            "path": path,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+                time.sleep(delay)
     return path
+
+
+def take_ready_shard(
+    rows: list[dict[str, Any]], *, shard_size: int, force: bool
+) -> list[dict[str, Any]]:
+    """Remove one publishable shard while retaining a smaller in-memory buffer."""
+    if len(rows) < shard_size and not (force and rows):
+        return []
+    count = min(len(rows), shard_size)
+    shard = rows[:count]
+    del rows[:count]
+    return shard
 
 
 class SemanticCheckpoint:
@@ -359,6 +411,28 @@ def run_embedding_refresh(
     )
     candidates = [row for row in articles if row["content_sha256"] not in done]
     selected = candidates[:limit] if limit > 0 else candidates
+    print(
+        json.dumps(
+            {
+                "event": "embedding_start",
+                "model": EMBEDDING_MODEL,
+                "completed": len(done),
+                "candidates": len(candidates),
+                "selected": len(selected),
+                "batch_size": batch_size,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    if not selected:
+        return EmbeddingReport(
+            model=EMBEDDING_MODEL,
+            candidates=len(candidates),
+            rows_added=0,
+            shards_published=0,
+            remaining=len(candidates),
+        )
     model = embedder or _default_embedder()
     added = 0
     shards = 0
@@ -390,8 +464,9 @@ def run_embedding_refresh(
         table = pa.Table.from_pylist(rows, schema=EMBEDDING_SCHEMA)
         local_path = output_dir / Path(shard_path(EMBEDDING_PREFIX, rows)).name
         write_parquet(table, local_path)
+        published_path = None
         if publish:
-            publish_shard(
+            published_path = publish_shard(
                 table,
                 prefix=EMBEDDING_PREFIX,
                 dataset_id=dataset_id,
@@ -399,6 +474,20 @@ def run_embedding_refresh(
             )
             shards += 1
         added += len(rows)
+        print(
+            json.dumps(
+                {
+                    "event": "embedding_checkpoint",
+                    "rows_in_shard": len(rows),
+                    "rows_added": added,
+                    "selected": len(selected),
+                    "remaining_after_run": max(0, len(candidates) - added),
+                    "path": published_path or str(local_path),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
     return EmbeddingReport(
         model=EMBEDDING_MODEL,
         candidates=len(candidates),

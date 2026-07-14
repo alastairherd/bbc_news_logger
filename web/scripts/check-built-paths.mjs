@@ -28,6 +28,12 @@ for (const [page, html] of output) {
 const index = output.find(([page]) => page === "index.html")?.[1] ?? "";
 const explore = output.find(([page]) => page === "explore/index.html")?.[1] ?? "";
 const signals = output.find(([page]) => page === "signals/index.html")?.[1] ?? "";
+const exploreScripts = await Promise.all(
+  [...explore.matchAll(/src="(\/bbc_news_logger\/[^\"]+\.js)"/g)].map((match) =>
+    readFile(new URL(`../dist/${match[1].slice(base.length)}`, import.meta.url), "utf8"),
+  ),
+);
+const exploreOutput = `${explore}\n${exploreScripts.join("\n")}`;
 const signalScripts = await Promise.all(
   [...signals.matchAll(/src="(\/bbc_news_logger\/[^\"]+\.js)"/g)].map((match) =>
     readFile(new URL(`../dist/${match[1].slice(base.length)}`, import.meta.url), "utf8"),
@@ -40,11 +46,17 @@ for (const mart of ["data/manifest.json", "data/daily.json"]) {
 }
 
 for (const mart of ["data/stories.json", "data/rank-series.json"]) {
-  if (!explore.includes(mart)) throw new Error(`explore/index.html is missing mart request: ${mart}`);
+  if (!exploreOutput.includes(mart)) throw new Error(`explore route is missing mart request: ${mart}`);
 }
 
-for (const mart of ["data/semantic-trends.json", "data/recurring-events.json"]) {
+for (const mart of [
+  "data/semantic-trends.json",
+  "data/recurring-events.json",
+  "data/semantic-findings.json",
+  "data/semantic-documents.json",
+  "data/semantic-vectors.i8",
+]) {
   if (!signalOutput.includes(mart)) throw new Error(`signals route is missing mart request: ${mart}`);
 }
 
-console.log(`Verified ${pages.length} GitHub Pages routes and six data-mart requests.`);
+console.log(`Verified ${pages.length} GitHub Pages routes and nine data-mart requests.`);
