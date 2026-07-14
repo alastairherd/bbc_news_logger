@@ -20,6 +20,7 @@ import pyarrow.parquet as pq
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.errors import HfHubHTTPError
 
+from .compaction import download_patterns, parquet_files
 from .config import DEFAULT_DATASET_ID
 from .deepseek import DEEPSEEK_MODEL, PROMPT_VERSION, DeepSeekBatchResult
 from .storage import write_parquet
@@ -83,10 +84,6 @@ class EmbeddingReport:
     remaining: int
 
 
-def _parquet_files(snapshot: Path, prefix: str) -> list[Path]:
-    return sorted((snapshot / prefix).rglob("*.parquet"))
-
-
 def download_dataset_tables(
     prefixes: Sequence[str],
     *,
@@ -99,18 +96,14 @@ def download_dataset_tables(
         snapshot_download(
             repo_id=dataset_id,
             repo_type="dataset",
-            allow_patterns=[
-                pattern
-                for prefix in prefixes
-                for pattern in (f"{prefix}/*.parquet", f"{prefix}/**/*.parquet")
-            ],
+            allow_patterns=download_patterns(prefixes),
             token=token or os.getenv("HF_TOKEN"),
             max_workers=8,
         )
     )
     result: dict[str, pa.Table | None] = {}
     for prefix in prefixes:
-        files = _parquet_files(snapshot, prefix)
+        files = parquet_files(snapshot, prefix)
         result[prefix] = (
             pa.concat_tables(
                 [pq.ParquetFile(path).read() for path in files], promote_options="default"

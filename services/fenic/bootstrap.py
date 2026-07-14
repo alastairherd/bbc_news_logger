@@ -10,6 +10,8 @@ from pathlib import Path
 import fenic as fc
 from huggingface_hub import snapshot_download
 
+from bbc_news_logger.compaction import download_patterns, parquet_files
+
 DATASET_ID = os.getenv("BBC_NEWS_DATASET", "AlastairH/bbc-news-logger")
 APP_NAME = os.getenv("FENIC_APP_NAME", "bbc_news_research_lab")
 DB_PATH = Path(os.getenv("FENIC_DB_PATH", ".fenic"))
@@ -56,12 +58,12 @@ def dataset_paths(prefix: str) -> list[str]:
         snapshot_download(
             repo_id=DATASET_ID,
             repo_type="dataset",
-            allow_patterns=f"{prefix}**/*.parquet",
+            allow_patterns=download_patterns([prefix.rstrip("/")]),
             token=os.getenv("HF_TOKEN"),
             max_workers=8,
         )
     )
-    return [str(path) for path in sorted((snapshot / prefix).rglob("*.parquet"))]
+    return [str(path) for path in parquet_files(snapshot, prefix.rstrip("/"))]
 
 
 def bootstrap(table_names: Iterable[str] | None = None) -> dict[str, int]:

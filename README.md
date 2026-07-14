@@ -60,6 +60,9 @@ uv run bbc-news scrape --upload
 
 # Build the JSON marts used by the static dashboard
 uv run bbc-news build-marts --output web/public/data
+
+# Periodically fold append-only shards into four compact cold-start bases
+uv run bbc-news compact-dataset --publish
 ```
 
 ## Data contract
@@ -73,6 +76,11 @@ The public dataset has three configurations:
 Stable `story_id` values derive from normalized canonical URLs. Each Parquet file embeds a schema
 version. Publication is an idempotent upsert on the record key, so rerunning a workflow cannot
 duplicate a batch.
+
+The compact bases are an LSM-style storage layer: scheduled jobs continue to append small
+incremental shards, while an occasional `compact-dataset --publish` atomically folds them into the
+base files. Dashboard and Fenic readers load both layers, reducing a clean deployment from more
+than a thousand HTTP object fetches to five without changing the tables or incremental workflow.
 
 The dataset cards and the dashboard's Methodology page document repaired legacy fields,
 reconstructed front-page position, selector risk, and interpretive limits.
