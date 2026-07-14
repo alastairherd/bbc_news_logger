@@ -71,6 +71,7 @@ jobs:
             --scope "$SEMANTIC_SCOPE" \
             --publish
       - name: Rebuild recurring-story clusters
+        if: ${{ always() && !cancelled() }}
         shell: bash
         run: |
           if ! uv run --no-sync python -m services.fenic.cluster --publish; then

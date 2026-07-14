@@ -8,6 +8,7 @@ import math
 import os
 import sqlite3
 import tempfile
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from typing import Any, Protocol
 import pyarrow as pa
 import pyarrow.parquet as pq
 from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub.errors import HfHubHTTPError
 
 from .config import DEFAULT_DATASET_ID
 from .deepseek import DEEPSEEK_MODEL, PROMPT_VERSION, DeepSeekBatchResult
@@ -27,6 +29,8 @@ EMBEDDING_MODEL_REVISION = "main"
 EMBEDDING_INPUT_VERSION = "headline-body-lead-v1"
 EMBEDDING_DIMENSIONS = 384
 EMBEDDING_TEXT_CHARACTERS = 4_000
+HF_UPLOAD_MAX_ATTEMPTS = 2
+HF_COMMIT_RATE_LIMIT_DELAY_SECONDS = 3_600
 
 SIGNAL_PREFIX = "semantic/signals"
 EMBEDDING_PREFIX = "semantic/embeddings"
@@ -228,14 +232,58 @@ def publish_shard(
     path = shard_path(prefix, rows)
     with tempfile.TemporaryDirectory(prefix="bbc-news-semantic-shard-") as tmp:
         local = write_parquet(table, Path(tmp) / "shard.parquet")
-        HfApi(token=token or os.getenv("HF_TOKEN")).upload_file(
-            repo_id=dataset_id,
-            repo_type="dataset",
-            path_or_fileobj=local,
-            path_in_repo=path,
-            commit_message=message,
-        )
+        api = HfApi(token=token or os.getenv("HF_TOKEN"))
+        for attempt in range(1, HF_UPLOAD_MAX_ATTEMPTS + 1):
+            try:
+                api.upload_file(
+                    repo_id=dataset_id,
+                    repo_type="dataset",
+                    path_or_fileobj=local,
+                    path_in_repo=path,
+                    commit_message=message,
+                )
+                break
+            except HfHubHTTPError as exc:
+                response = exc.response
+                if (
+                    response is None
+                    or response.status_code != 429
+                    or attempt == HF_UPLOAD_MAX_ATTEMPTS
+                ):
+                    raise
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    delay = max(1, int(float(retry_after or 0)))
+                except ValueError:
+                    delay = 60
+                if "repository commits" in str(exc).lower():
+                    delay = max(delay, HF_COMMIT_RATE_LIMIT_DELAY_SECONDS)
+                print(
+                    json.dumps(
+                        {
+                            "event": "hf_upload_retry",
+                            "attempt": attempt,
+                            "delay_seconds": delay,
+                            "path": path,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+                time.sleep(delay)
     return path
+
+
+def take_ready_shard(
+    rows: list[dict[str, Any]], *, shard_size: int, force: bool
+) -> list[dict[str, Any]]:
+    """Remove one publishable shard while retaining a smaller in-memory buffer."""
+    if len(rows) < shard_size and not (force and rows):
+        return []
+    count = min(len(rows), shard_size)
+    shard = rows[:count]
+    del rows[:count]
+    return shard
 
 
 class SemanticCheckpoint:

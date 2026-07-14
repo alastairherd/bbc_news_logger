@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from httpx import Request, Response
+from huggingface_hub.errors import HfHubHTTPError
 
 from bbc_news_logger.clustering import cluster_events
 from bbc_news_logger.semantics import (
@@ -13,7 +15,9 @@ from bbc_news_logger.semantics import (
     SIGNAL_SCHEMA,
     SemanticCheckpoint,
     embedding_text,
+    publish_shard,
     run_embedding_refresh,
+    take_ready_shard,
 )
 from bbc_news_logger.storage import ARTICLE_SCHEMA
 
@@ -91,6 +95,59 @@ def test_sqlite_checkpoint_survives_reopen(tmp_path) -> None:
     assert restored.completed_hashes() == {"hash-a"}
     assert restored.rows()[0]["event_label"] == "Talks resume"
     restored.close()
+
+
+def test_publish_shard_waits_for_hugging_face_commit_rate_limit(
+    monkeypatch, capsys
+) -> None:
+    start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    table = pa.Table.from_pylist([_signal("hash-a", "Talks", "State", start)], SIGNAL_SCHEMA)
+    request = Request("POST", "https://huggingface.co/api/datasets/example/commit/main")
+    response = Response(429, headers={"Retry-After": "68"}, request=request)
+    error = HfHubHTTPError(
+        "You have exceeded the rate limit for repository commits (128 per hour).",
+        response=response,
+    )
+
+    class FakeApi:
+        attempts = 0
+
+        def upload_file(self, **_kwargs):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise error
+
+    api = FakeApi()
+    delays: list[int] = []
+    monkeypatch.setattr("bbc_news_logger.semantics.HfApi", lambda **_kwargs: api)
+    monkeypatch.setattr("bbc_news_logger.semantics.time.sleep", delays.append)
+
+    path = publish_shard(
+        table,
+        prefix="semantic/signals",
+        dataset_id="example/dataset",
+        message="test",
+    )
+
+    assert path.endswith(".parquet")
+    assert api.attempts == 2
+    assert delays == [3_600]
+    assert '"event": "hf_upload_retry"' in capsys.readouterr().out
+
+
+def test_take_ready_shard_buffers_rows_until_target_size() -> None:
+    rows = [{"content_sha256": f"hash-{index}"} for index in range(300)]
+
+    first = take_ready_shard(rows, shard_size=256, force=False)
+
+    assert len(first) == 256
+    assert len(rows) == 44
+    assert take_ready_shard(rows, shard_size=256, force=False) == []
+
+    final = take_ready_shard(rows, shard_size=256, force=True)
+
+    assert len(final) == 44
+    assert rows == []
 
 
 def test_embedding_refresh_normalizes_and_reports_checkpoint(
