@@ -42,22 +42,6 @@ TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 GENERIC_ENTITIES = {"bbc", "bbc news", "uk", "united kingdom", "government"}
 
 
-class _UnionFind:
-    def __init__(self, size: int) -> None:
-        self.parent = list(range(size))
-
-    def find(self, value: int) -> int:
-        while self.parent[value] != value:
-            self.parent[value] = self.parent[self.parent[value]]
-            value = self.parent[value]
-        return value
-
-    def union(self, left: int, right: int) -> None:
-        left_root, right_root = self.find(left), self.find(right)
-        if left_root != right_root:
-            self.parent[right_root] = left_root
-
-
 def _tokens(value: str) -> set[str]:
     return set(TOKEN_PATTERN.findall(value.casefold()))
 
@@ -75,6 +59,29 @@ def _entities(row: dict[str, Any]) -> set[str]:
         for value in row.get("named_entities") or []
         if str(value).strip().casefold() not in GENERIC_ENTITIES
     }
+
+
+def _event_match(
+    current: dict[str, Any],
+    anchor: dict[str, Any],
+    similarity: float,
+    *,
+    strong_similarity: float,
+    supported_similarity: float,
+) -> bool:
+    """Require independent semantic and structured evidence for cross-story links."""
+
+    if str(current.get("event_type")) != str(anchor.get("event_type")):
+        return False
+    entity_overlap = bool(_entities(current) & _entities(anchor))
+    label_overlap = _label_overlap(
+        str(current.get("event_label") or ""), str(anchor.get("event_label") or "")
+    )
+    return (
+        similarity >= strong_similarity and (entity_overlap or label_overlap >= 0.25)
+    ) or (
+        similarity >= supported_similarity and entity_overlap and label_overlap >= 0.35
+    )
 
 
 def _latest_by_hash(table: pa.Table, timestamp: str) -> dict[str, dict[str, Any]]:
@@ -111,37 +118,45 @@ def cluster_events(
     matrix = np.asarray([embedding_rows[value]["embedding"] for value in hashes], dtype=np.float32)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     matrix = matrix / np.maximum(norms, np.finfo(np.float32).eps)
-    union = _UnionFind(len(hashes))
     window = timedelta(days=window_days)
-    window_start = 0
+    clusters: list[list[int]] = []
+    story_cluster: dict[str, int] = {}
     for index, content_hash in enumerate(hashes):
+        article = article_rows[content_hash]
         fetched_at = article_rows[content_hash]["fetched_at"]
-        while (
-            window_start < index
-            and article_rows[hashes[window_start]]["fetched_at"] < fetched_at - window
-        ):
-            window_start += 1
-        if window_start == index:
+        story_id = str(article["story_id"])
+        if story_id in story_cluster:
+            clusters[story_cluster[story_id]].append(index)
             continue
-        similarities = matrix[window_start:index] @ matrix[index]
-        current_signal = signal_rows[content_hash]
-        current_entities = _entities(current_signal)
-        for offset in np.flatnonzero(similarities >= supported_similarity):
-            candidate_index = window_start + int(offset)
-            similarity = float(similarities[offset])
-            candidate_signal = signal_rows[hashes[candidate_index]]
-            supported = bool(current_entities & _entities(candidate_signal)) or _label_overlap(
-                str(current_signal["event_label"]), str(candidate_signal["event_label"])
-            ) >= 0.5
-            if similarity >= strong_similarity or supported:
-                union.union(index, candidate_index)
 
-    members: dict[int, list[int]] = {}
-    for index in range(len(hashes)):
-        members.setdefault(union.find(index), []).append(index)
+        current_signal = signal_rows[content_hash]
+        best_cluster: int | None = None
+        best_similarity = -1.0
+        for cluster_index, members in enumerate(clusters):
+            anchor_index = members[0]
+            latest_index = members[-1]
+            if article_rows[hashes[latest_index]]["fetched_at"] < fetched_at - window:
+                continue
+            similarity = float(matrix[index] @ matrix[anchor_index])
+            if similarity <= best_similarity or not _event_match(
+                current_signal,
+                signal_rows[hashes[anchor_index]],
+                similarity,
+                strong_similarity=strong_similarity,
+                supported_similarity=supported_similarity,
+            ):
+                continue
+            best_cluster = cluster_index
+            best_similarity = similarity
+        if best_cluster is None:
+            best_cluster = len(clusters)
+            clusters.append([index])
+        else:
+            clusters[best_cluster].append(index)
+        story_cluster[story_id] = best_cluster
 
     output: list[dict[str, Any]] = []
-    for indices in members.values():
+    for indices in clusters:
         anchor_index = min(indices)
         anchor_hash = hashes[anchor_index]
         cluster_id = "event-" + hashlib.sha256(anchor_hash.encode()).hexdigest()[:16]
