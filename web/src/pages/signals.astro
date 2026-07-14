@@ -28,7 +28,7 @@ import Layout from "../layouts/Layout.astro";
         <div>
           <p class="context-label">Runs on this device</p>
           <h2 id="semantic-search-heading">Search by meaning</h2>
-          <p>Describe an idea rather than guessing the words used in a headline. BGE Small and the archive index load automatically and are cached by your browser.</p>
+          <p>Ask a question or describe an idea rather than guessing the words used in a headline. BGE Small retrieves the evidence locally; DeepSeek can then synthesise a cited answer from those results.</p>
         </div>
         <div class="model-state" id="model-state" role="status" aria-live="polite">
           <span class="state-dot" aria-hidden="true"></span>
@@ -41,7 +41,10 @@ import Layout from "../layouts/Layout.astro";
           <label for="semantic-query">Meaning, event, or question</label>
           <div class="search-input-row">
             <input id="semantic-query" type="search" placeholder="e.g. housing policy affecting renters" autocomplete="off" />
-            <button class="button" type="submit">Search archive</button>
+            <div class="search-actions">
+              <button class="button" name="mode" value="ask" type="submit">Ask the archive</button>
+              <button class="button secondary" name="mode" value="search" type="submit">Find sources only</button>
+            </div>
           </div>
           <progress id="model-progress" max="100" value="0" aria-label="Semantic model download progress"></progress>
         </div>
@@ -61,6 +64,7 @@ import Layout from "../layouts/Layout.astro";
         </div>
       </form>
       <div class="search-summary" id="search-summary">The index and query model are loading in the background.</div>
+      <section class="research-answer" id="research-answer" aria-live="polite" hidden></section>
       <div class="semantic-results" id="semantic-results" aria-live="polite">
         <p class="loading">Search results will appear here. Try a concept, event, or plain-language description.</p>
       </div>
@@ -126,8 +130,11 @@ import Layout from "../layouts/Layout.astro";
     interface Findings { window: null | { recentStart: string; recentEnd: string; previousStart: string; previousEnd: string; recentLabelledArticles: number; previousLabelledArticles: number }; risingThemes: ThemeChange[]; fallingThemes: ThemeChange[]; storyForms: StoryFormFinding[]; surfaceDifferences: SurfaceDifference[]; returningStories: EventCluster[] }
     interface SearchDocument { story_id: string; title: string; url: string; fetched_at: string; surfaces: string[]; best_position: number | null; summary: string; topic: string; themes: string[]; story_form: string; event_type: string }
     interface SearchResult { document: SearchDocument; score: number }
+    interface ResearchFinding { claim: string; sources: number[] }
+    interface ResearchResponse { answer: string; findings: ResearchFinding[]; limitations: string; model: string; cached: boolean; usage?: { promptTokens: number; completionTokens: number; costUsd: number } }
 
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+    const researchApi = import.meta.env.PUBLIC_RESEARCH_API_URL ?? "https://alastairh-bbc-news-archive-research.hf.space/api/research";
     const number = new Intl.NumberFormat("en-GB");
     const date = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
     let trends: TrendRow[] = [];
@@ -135,6 +142,8 @@ import Layout from "../layouts/Layout.astro";
     let selectedEvent: string | null = null;
     let semanticReady = false;
     let pendingSearch = false;
+    let askAfterSearch = false;
+    let lastSearchResults: SearchResult[] = [];
     let requestId = 0;
 
     const escape = (value: unknown): string => {
@@ -164,31 +173,90 @@ import Layout from "../layouts/Layout.astro";
       select.innerHTML = `${initial}${values.filter((value) => value && value !== "unlabelled").map((value) => `<option value="${escape(value)}">${escape(label(value))}</option>`).join("")}`;
     }
 
-    function submitSemanticSearch() {
+    function submitSemanticSearch(ask = false) {
       const query = control("#semantic-query").value.trim();
       if (!query) { control("#semantic-query").focus(); return; }
+      askAfterSearch = ask;
       if (!semanticReady) {
         pendingSearch = true;
-        element("#search-summary").textContent = "Your query is queued while the semantic model finishes loading.";
+        element("#search-summary").textContent = ask ? "Your question is queued while the semantic model finishes loading." : "Your query is queued while the semantic model finishes loading.";
         return;
       }
       pendingSearch = false;
       requestId += 1;
       element("#search-summary").textContent = `Searching ${number.format(Number(element("#model-state").dataset.count ?? 0))} embedded stories by meaning…`;
       element("#semantic-results").innerHTML = `<p class="loading">Comparing your query with the archive…</p>`;
+      if (ask) {
+        const panel = element("#research-answer"); panel.hidden = false;
+        panel.innerHTML = `<p class="research-state">Retrieving the strongest archive evidence before asking DeepSeek…</p>`;
+      }
       semanticWorker.postMessage({ type: "search", requestId, query, filters: { surface: control("#semantic-surface").value, topic: control("#semantic-topic").value, storyForm: control("#semantic-form").value } });
       const params = new URLSearchParams(location.search); params.set("q", query); history.replaceState(null, "", `${location.pathname}?${params}`);
     }
 
     function renderSearchResults(results: SearchResult[], mode: string) {
       const query = control("#semantic-query").value.trim();
+      lastSearchResults = results;
       element("#search-summary").textContent = results.length ? `${results.length} best matches for “${query}” · ${mode === "semantic" ? "semantic similarity" : "keyword fallback"}` : `No indexed stories matched “${query}” and the selected filters.`;
-      element("#semantic-results").innerHTML = results.length ? results.map(({ document, score }) => `
+      element("#semantic-results").innerHTML = results.length ? results.map(({ document, score }, index) => `
         <article class="semantic-result">
-          <div class="result-score"><strong>${score.toFixed(3)}</strong><span>similarity</span></div>
+          <div class="result-score"><strong>${index + 1}</strong><span>source · ${score.toFixed(3)}</span></div>
           <div class="result-copy"><div class="result-meta"><time datetime="${escape(document.fetched_at)}">${date.format(new Date(document.fetched_at))}</time><span>${escape(document.surfaces.map((surface) => surface === "front_page" ? "front page" : "Most Read").join(" + ") || "article archive")}</span><span>${escape(label(document.story_form))}</span></div><h3><a href="${escape(document.url)}" target="_blank" rel="noreferrer">${escape(document.title)}</a></h3>${document.summary ? `<p>${escape(document.summary)}</p>` : ""}<div class="result-tags"><span>${escape(label(document.topic))}</span>${document.themes.slice(0, 4).map((theme) => `<span>${escape(theme)}</span>`).join("")}</div></div>
           <a class="evidence-link" href="${escape(document.url)}" target="_blank" rel="noreferrer">Open evidence ↗</a>
         </article>`).join("") : `<p class="loading">Try broadening the wording or clearing a filter.</p>`;
+      if (askAfterSearch) {
+        askAfterSearch = false;
+        if (results.length) void askArchive();
+        else element("#research-answer").hidden = true;
+      }
+    }
+
+    function sourceLinks(sources: number[]): string {
+      return sources.map((source) => {
+        const result = lastSearchResults[source - 1];
+        return result ? `<a href="${escape(result.document.url)}" target="_blank" rel="noreferrer" aria-label="Open source ${source}">[${source}]</a>` : "";
+      }).join(" ");
+    }
+
+    function citedText(value: string): string {
+      return escape(value).replace(/\[(\d+)\]/g, (marker, index) => {
+        const source = Number(index);
+        return lastSearchResults[source - 1] ? sourceLinks([source]) : marker;
+      });
+    }
+
+    async function askArchive() {
+      const query = control("#semantic-query").value.trim();
+      const panel = element("#research-answer");
+      if (!query || !lastSearchResults.length) return;
+      panel.hidden = false;
+      panel.innerHTML = `<p class="research-state">DeepSeek is reading ${Math.min(10, lastSearchResults.length)} retrieved sources. A sleeping free-CPU Space can take up to a minute to wake…</p>`;
+      const evidence = lastSearchResults.slice(0, 10).map(({ document, score }) => ({
+        title: document.title, url: document.url, date: document.fetched_at,
+        summary: document.summary, topic: document.topic, themes: document.themes,
+        story_form: document.story_form, event_type: document.event_type, similarity: score,
+      }));
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 90_000);
+      try {
+        const response = await fetch(researchApi, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, evidence }),
+          signal: controller.signal,
+        });
+        const value = await response.json().catch(() => ({})) as ResearchResponse & { detail?: string };
+        if (!response.ok) throw new Error(value.detail || `Research service returned ${response.status}`);
+        const findings = value.findings?.length ? `<ol class="research-findings">${value.findings.map((finding) => `<li><span>${escape(finding.claim)}</span><span class="research-citations">${sourceLinks(finding.sources)}</span></li>`).join("")}</ol>` : "";
+        const cost = value.usage?.costUsd ? ` · $${value.usage.costUsd.toFixed(5)}` : "";
+        panel.innerHTML = `<div class="research-heading"><div><p class="context-label">Cited synthesis</p><h3>Answer from the retrieved archive</h3></div><span>${escape(value.model)}${value.cached ? " · cached" : cost}</span></div><p class="research-copy">${citedText(value.answer)}</p>${findings}${value.limitations ? `<p class="research-limit"><strong>Limits:</strong> ${escape(value.limitations)}</p>` : ""}<p class="research-disclaimer">Generated analysis can be wrong. Check the numbered BBC evidence below.</p>`;
+      } catch (error) {
+        const message = error instanceof DOMException && error.name === "AbortError" ? "The free-CPU research service did not wake in time." : error instanceof Error ? error.message : "The cited answer is temporarily unavailable.";
+        panel.innerHTML = `<div class="research-heading"><div><p class="context-label">Local results still available</p><h3>The cited answer could not be generated</h3></div></div><p class="research-copy">${escape(message)}</p><button class="button secondary" id="retry-research" type="button">Try the synthesis again</button>`;
+        document.querySelector<HTMLButtonElement>("#retry-research")?.addEventListener("click", () => void askArchive());
+      } finally {
+        window.clearTimeout(timeout);
+      }
     }
 
     semanticWorker.addEventListener("message", (event: MessageEvent) => {
@@ -209,20 +277,24 @@ import Layout from "../layouts/Layout.astro";
         semanticReady = true; setModelState("Semantic search ready", "ready");
         const bar = document.querySelector<HTMLProgressElement>("#model-progress"); if (bar) bar.value = 100;
         element("#search-summary").textContent = `${number.format(Number(element("#model-state").dataset.count ?? 0))} stories ready for meaning-based search.`;
-        if (pendingSearch || control("#semantic-query").value.trim()) submitSemanticSearch();
+        if (pendingSearch || control("#semantic-query").value.trim()) submitSemanticSearch(askAfterSearch);
       }
       if (message.type === "model-error") {
         semanticReady = true; setModelState("Semantic model unavailable · keyword fallback ready", "error");
         element("#search-summary").textContent = "The vector index loaded, but the query model did not. Searches will use a local keyword fallback.";
-        if (pendingSearch) submitSemanticSearch();
+        if (pendingSearch) submitSemanticSearch(askAfterSearch);
       }
       if (message.type === "search-results" && message.requestId === requestId) renderSearchResults(message.results, message.mode);
       if (message.type === "fatal-error") { setModelState("Semantic index unavailable", "error"); element("#search-summary").textContent = message.message; }
       if (message.type === "search-error" && message.requestId === requestId) { element("#search-summary").textContent = message.message; element("#semantic-results").innerHTML = `<p class="loading">Search could not be completed.</p>`; }
     });
 
-    element("#semantic-search-form").addEventListener("submit", (event) => { event.preventDefault(); submitSemanticSearch(); });
-    ["#semantic-surface", "#semantic-topic", "#semantic-form"].forEach((selector) => control(selector).addEventListener("change", () => { if (control("#semantic-query").value.trim()) submitSemanticSearch(); }));
+    element("#semantic-search-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+      submitSemanticSearch(submitter?.value === "ask");
+    });
+    ["#semantic-surface", "#semantic-topic", "#semantic-form"].forEach((selector) => control(selector).addEventListener("change", () => { if (control("#semantic-query").value.trim()) submitSemanticSearch(false); }));
 
     function renderFindings(findings: Findings) {
       if (findings.window) element("#findings-window").textContent = `${date.format(new Date(findings.window.recentStart))}–${date.format(new Date(findings.window.recentEnd))} compared with the previous 14 days; shares are normalised by labelled article count.`;
@@ -258,7 +330,7 @@ import Layout from "../layouts/Layout.astro";
       const semantic = manifest.semantics ?? { signalCount: 0, articleVersionCount: 0, coveragePercent: 0, recurringEventCount: 0 };
       element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}%`; element("#signal-count").textContent = number.format(semantic.signalCount); element("#event-count").textContent = number.format(semantic.recurringEventCount); element("#coverage-note").textContent = semantic.coveragePercent < 100 ? `Historical enrichment is in progress. ${number.format(semantic.articleVersionCount - semantic.signalCount)} article versions remain.` : "All currently archived article versions have structured signals.";
       syncTrendValues(); renderTrend(); renderEvents(); if (events.length) selectEvent(events[0]!.cluster_id);
-      const query = new URLSearchParams(location.search).get("q"); if (query) { control("#semantic-query").value = query; pendingSearch = true; if (semanticReady) submitSemanticSearch(); }
+      const query = new URLSearchParams(location.search).get("q"); if (query) { control("#semantic-query").value = query; pendingSearch = true; if (semanticReady) submitSemanticSearch(false); }
     }).catch(() => { element("#coverage").textContent = "Unavailable"; element("#coverage-note").textContent = "The static semantic marts could not be loaded."; element("#event-list").innerHTML = `<p class="loading">Recurring-story data is temporarily unavailable.</p>`; });
   </script>
 </Layout>
