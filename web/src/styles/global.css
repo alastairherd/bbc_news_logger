@@ -177,6 +177,12 @@
   .semantic-query progress::-moz-progress-bar { background: var(--cyan); }
   .semantic-filters { display: grid; grid-template-columns: repeat(3, minmax(8rem, 1fr)); gap: .6rem; }
   .search-summary { padding: .8rem 0; color: var(--muted); font: .72rem var(--mono); border-bottom: 1px solid var(--line-strong); }
+  .research-access { border-bottom: 1px solid var(--line-strong); background: var(--paper-strong); }
+  .research-access summary { padding: .7rem 1rem; color: var(--signal); font-size: .75rem; font-weight: 650; cursor: pointer; }
+  .research-access > div { padding: 0 1rem 1rem; }
+  .research-access p { color: var(--muted); font-size: .76rem; }
+  .research-key-row { display: grid; grid-template-columns: minmax(14rem, 1fr) auto auto; gap: .45rem; margin-top: .7rem; }
+  .research-key-status { margin-top: .5rem; font-family: var(--mono); }
   .research-answer { padding: clamp(1.2rem, 3vw, 2rem); border: 1px solid var(--signal); border-top: 0; background: var(--dark); color: white; }
   .research-answer[hidden] { display: none; }
   .research-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; padding-bottom: 1rem; border-bottom: 1px solid var(--dark-line); }
@@ -325,6 +331,7 @@
 @media (max-width: 520px) {
   .search-input-row, .semantic-filters, .findings-grid { grid-template-columns: 1fr; }
   .search-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .research-key-row { grid-template-columns: 1fr; }
   .research-heading, .research-findings li { grid-template-columns: 1fr; display: grid; }
   .semantic-filters .field:last-child, .evidence-link { grid-column: auto; }
   .semantic-result { grid-template-columns: 1fr; }

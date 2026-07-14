@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bbc-news-archive-research",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-07-14",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  }
+}
