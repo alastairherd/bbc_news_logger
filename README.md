@@ -1,187 +1,218 @@
 # BBC News Analyser
 
-An independent longitudinal dataset and research interface for studying how stories, themes, and
-recurring events move between the BBC News front page and Most Read list.
+An independent, continuously updated archive for exploring how stories move across the BBC News
+front page and Most Read list.
 
-- **Explore:** <https://alastairherd.github.io/bbc_news_logger/>
-- **Curated dataset:** <https://huggingface.co/datasets/AlastairH/bbc-news-logger>
-- **Raw HTML companion:** <https://huggingface.co/datasets/AlastairH/bbc-news-logger-raw>
+[Open the analyser](https://alastairherd.github.io/bbc_news_logger/) ·
+[Browse the dataset](https://huggingface.co/datasets/AlastairH/bbc-news-logger) ·
+[Read the methodology](https://alastairherd.github.io/bbc_news_logger/methodology/)
 
-This project is not affiliated with or endorsed by the BBC. BBC content remains subject to its
-terms and copyright.
+The project records selected BBC News homepage positions every hour, fetches article snapshots,
+and adds semantic labels and embeddings. The public interface turns that history into explorable
+trends, recurring-story timelines, related coverage, and evidence-linked answers.
 
-## Architecture
+This project is not affiliated with or endorsed by the BBC. BBC content remains subject to the
+BBC's terms and copyright.
+
+## What you can explore
+
+| View | What it shows |
+| --- | --- |
+| **Overview** | Recent theme momentum, differences between the front page and Most Read, story-form mix, collection health, and returning stories |
+| **Explore** | A filterable, paginated story archive with article links and semantically related coverage |
+| **Ask & analyse** | Local semantic search, optional cited synthesis, 120-day signal trends, and recurring-story timelines |
+| **Methodology** | Collection rules, schemas, validation, semantic methods, known gaps, and interpretive limits |
+
+### Ask the archive
+
+“Ask the archive” retrieves up to twenty relevant articles with BGE Small and can ask DeepSeek V4
+Flash to produce a cited synthesis. Every generated finding links back to numbered BBC evidence so
+the source material remains inspectable.
+
+- Search queries and embedding comparisons run locally in the browser.
+- The embedding model and index load only after a semantic search begins.
+- The shared synthesis path sends the question and bounded evidence rows to a rate-limited
+  Cloudflare Worker; it does not send the full archive.
+- A visitor-supplied DeepSeek key is kept in session storage for that browser tab and sent directly
+  to DeepSeek instead of this project.
+- Fast, Reasoned, and Deep analysis modes control the bounded DeepSeek thinking allowance.
+- Source search, trends, and recurring-story exploration remain available if synthesis is offline.
+
+Generated labels, clusters, and answers are discovery aids. They can be incomplete or wrong and
+should not be treated as verified claims about the BBC or the events being reported.
+
+## How it works
 
 ```text
 BBC News homepage
-       │ hourly, validated
-       ▼
+        │ hourly collection and validation
+        ▼
 GitHub Actions ───────────────► Hugging Face Parquet datasets
-       │                                   │
-       │ 3-hourly marts                    ├──► Astro static research explorer
-       │                                   │
-       ├── daily article + semantic refresh ─► Fenic catalog + optional MCP service
-       │                                   │
-       ├── checkpointed BGE backfill ───────► GitHub-hosted CPU runner
-       │
-       └── bounded cited synthesis ─────────► Cloudflare Worker → DeepSeek
+        │                                      │
+        │ DuckDB marts                         ├──► Astro research interface
+        │                                      │
+        ├── article snapshots                  ├──► BGE embeddings
+        ├── semantic enrichment                └──► labels and story clusters
+        │
+        └── cited synthesis request ──────────────► Cloudflare Worker → DeepSeek
 ```
 
-The Git repository contains code, schemas, tests, and interface assets only. Data is published as
-Zstandard-compressed Parquet, partitioned by UTC date. Raw article HTML is kept in a separate
-dataset so normal analysis does not download the largest field.
+The repository contains application code, schemas, tests, and interface assets. Generated data is
+published to Hugging Face rather than committed to Git:
 
-The historical migration preserved 171,887 position observations and 18,892 article snapshots in
-1,223 audited destination files. See `migration/manifest.json` in the curated dataset for source
-and destination hashes, row counts, and the source commit.
+- [Curated dataset](https://huggingface.co/datasets/AlastairH/bbc-news-logger): observations,
+  parsed article snapshots, run metadata, embeddings, labels, and clusters.
+- [Raw HTML companion](https://huggingface.co/datasets/AlastairH/bbc-news-logger-raw): source HTML
+  kept separately so ordinary analysis does not download the largest field.
 
-The low-cost data-app architecture was informed by Spicy Data's
-[“A live data app for $0: DuckDB, Astro, and no BI tool”](https://spicydata.ai/blog/zero-dollar-data-app/).
-Its pull → DuckDB marts → Astro interface → scheduled refresh pattern is a useful reference for
-building a bespoke public data product without a warehouse or per-seat BI service.
+Append-only Parquet shards make routine updates small. A weekly compare-and-swap compaction folds
+older shards into compressed base files without racing new collection writes. Dashboard and Fenic
+readers see the base and incremental layers as the same logical tables.
 
-## Local development
+## Dataset
 
-Requires Python 3.10–3.12 and [uv](https://docs.astral.sh/uv/). The dashboard requires Node 22.
+The main public dataset exposes three core configurations:
+
+| Configuration | Grain |
+| --- | --- |
+| `observations` | One row for each captured story position in each successful scrape |
+| `article_snapshots` | Parsed metadata and text for each daily article URL set |
+| `scrape_runs` | Validation and operational metadata for each collection attempt |
+
+Stable `story_id` values come from normalized canonical URLs. Every Parquet file carries a schema
+version, and publication uses idempotent record keys so rerunning a workflow does not duplicate a
+batch. The dataset cards document the complete schemas and the audited historical migration.
+
+### What the numbers mean
+
+- A front-page position is not a direct measure of editorial importance.
+- A Most Read rank is not an audience count.
+- Counts in the analyser describe captured positions or fetched article versions, not readership.
+- Collection covers selected regions of one BBC News web page, not apps, regional variants,
+  personalization, or every BBC property.
+- Scheduled jobs and page-structure changes can create visible gaps. Failed validation publishes no
+  partial observation batch.
+
+See the [versioned methodology](https://alastairherd.github.io/bbc_news_logger/methodology/) for the
+full data contract, migration repairs, clustering thresholds, and limitations.
+
+## Run locally
+
+Requirements:
+
+- Python 3.10–3.12
+- [uv](https://docs.astral.sh/uv/)
+- Node.js 22
 
 ```bash
+git clone https://github.com/alastairherd/bbc_news_logger.git
+cd bbc_news_logger
+
 uv sync --extra dev
 uv run pytest -q
 uv run ruff check .
+
+# Build the dashboard data from the public Hugging Face dataset
+uv run bbc-news build-marts --output web/public/data
 
 cd web
 npm ci
 npm run dev
 ```
 
-Useful pipeline commands:
+The local Astro server prints the URL to open. The optional cited-answer service is not required for
+the rest of the interface.
+
+### Useful commands
 
 ```bash
-# Parse and validate a live homepage response without publishing it
+# Parse and validate a live homepage response without publishing
 uv run bbc-news scrape
 
 # Publish a validated batch (requires HF_TOKEN)
 uv run bbc-news scrape --upload
 
-# Build the JSON marts used by the static dashboard
+# Rebuild the static dashboard marts
 uv run bbc-news build-marts --output web/public/data
 
-# Periodically fold append-only shards into four compact cold-start bases
+# Compact append-only Hugging Face shards
 uv run bbc-news compact-dataset --publish
 ```
 
-## Data contract
-
-The public dataset has three configurations:
-
-- `observations`: one row for every story position in every successful scrape;
-- `article_snapshots`: parsed metadata and text for each daily URL set;
-- `scrape_runs`: validation and operational metadata for new runs.
-
-Stable `story_id` values derive from normalized canonical URLs. Each Parquet file embeds a schema
-version. Publication is an idempotent upsert on the record key, so rerunning a workflow cannot
-duplicate a batch.
-
-The compact bases are an LSM-style storage layer: scheduled jobs continue to append small
-incremental shards, while an occasional `compact-dataset --publish` atomically folds them into the
-base files. Dashboard and Fenic readers load both layers, reducing a clean deployment from more
-than a thousand HTTP object fetches to five without changing the tables or incremental workflow.
-The weekly compaction Action supplies the snapshot revision as a compare-and-swap guard, so a
-simultaneous collection commit makes compaction fail safely rather than delete unseen rows.
-
-The dataset cards and the dashboard's Methodology page document repaired legacy fields,
-reconstructed front-page position, selector risk, and interpretive limits.
-
 ## Automation
 
-| Workflow | Trigger | Result |
+| Workflow | Schedule or trigger | Result |
 | --- | --- | --- |
-| Collect BBC News observations | Hourly at `:07` | Validates both surfaces and upserts observations/run metadata to Hugging Face |
-| Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global request-rate limiter |
-| Refresh semantic analysis | After the daily article job | Embeds and labels only new content hashes, checkpoints results, and refreshes recurring-story clusters |
-| Compact Hugging Face dataset | Weekly on Sunday | Atomically folds incremental Parquet shards into four compact bases |
-| Deploy research dashboard | Every three hours and relevant pushes | Rebuilds marts from the public dataset and deploys GitHub Pages |
-| Deploy cited research Worker | Relevant Worker changes | Deploys the bounded DeepSeek synthesis endpoint to Cloudflare Workers |
-| CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks/build, and Fenic's API checker |
+| Collect BBC News observations | Hourly at `:07` | Validates both surfaces and publishes observations and run metadata |
+| Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global rate limit |
+| Refresh semantic analysis | After article collection | Embeds and labels new content hashes, checkpoints progress, and refreshes clusters |
+| Compact the dataset | Weekly | Atomically folds incremental Parquet shards into compact bases |
+| Deploy the analyser | Every three hours and relevant pushes | Rebuilds public marts and deploys GitHub Pages |
+| Deploy the research Worker | Relevant Worker changes | Publishes the bounded DeepSeek synthesis endpoint |
+| CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks, Worker tests, and Fenic API checks |
 
-All Actions jobs use least-privilege repository permissions, locked dependencies, timeouts,
-concurrency groups, and caches. They do not commit generated data back to Git.
+Actions use least-privilege permissions, locked dependencies, timeouts, concurrency controls, and
+caches. Generated data is never committed back to this repository.
 
-## Fenic integration
+## Fenic and MCP
 
-[`services/fenic`](services/fenic/) materializes the Hugging Face tables in a persistent Fenic
-catalog and exposes bounded schema, profile, search, read, and SQL-analysis tools over MCP. The
-semantic enrichment command is explicit and cached; ordinary MCP exploration does not call a
-language model.
+[`services/fenic`](services/fenic/) is an optional research interface over the same Hugging Face
+tables. It materializes a persistent [Fenic](https://github.com/typedef-ai/fenic) catalog and
+exposes bounded schema, profile, search, read, and SQL-analysis tools over MCP.
 
-The Docker service remains available for local or separately hosted MCP use. Fenic is not required
-for embeddings or for the static explorer. BGE Small runs directly on a GitHub-hosted CPU runner,
-which writes completed batches back to the Hugging Face dataset without rebuilding a Fenic catalog.
+Fenic is not required for the public website, embeddings, or semantic search. The service is
+available for local Docker use or deployment to a separate Python host.
 
-Semantic enrichment runs explicitly on a local machine with
-`./scripts/refresh_semantics.sh`. It bills only new content hashes and writes each successful
-eight-article response to a synchronous SQLite checkpoint before starting more paid work. Up to
-four requests run concurrently, and completed responses are buffered into 256-row immutable
-Parquet shards before upload. This keeps paid-call recovery granular without exhausting the Hugging
-Face repository commit quota. A hard `$1.00` process ceiling, `$7.50` historical ceiling, and
-`$1.00` monthly incremental ceiling limit spend. Ambiguous model failures are recorded without
-automatic paid retries; a Hub commit-rate response waits for its quota window and retries once.
-Unpublished checkpoint rows count towards the same cumulative ledger, so an expired Hub token or
-failed upload cannot make a resumed run undercount prior paid work.
+<details>
+<summary><strong>Maintainer operations</strong></summary>
 
-The Overview now leads with computed theme momentum, front-page versus Most Read skews, and
-recurring stories. Signals loads BGE Small in the browser by default, searches the archive by
-meaning, and exposes the underlying trends, story-form mix, and recurring-story timelines. Explore
-uses the same compact int8 vector index for related coverage and paginates the story archive in
-finite 15-row pages. Coverage is always visible because historical enrichment can take more than
-one run.
+### Semantic enrichment
 
-“Ask the archive” follows the same retrieval-then-synthesis pattern as the Fenic HN agent example.
-BGE retrieves the strongest matches locally in the browser, then a lightweight Cloudflare Worker
-sends at most twenty validated BBC evidence rows to DeepSeek V4 Flash. The synthesis prompt ranks
-relevance, distinguishes reported claims from established facts, and surfaces counter-evidence.
-Answers and findings cite the numbered results. Fast mode disables thinking; optional Reasoned and
-Deep analysis modes enable bounded [DeepSeek thinking](https://api-docs.deepseek.com/guides/thinking_mode).
-Private reasoning is never stored or exposed. The Worker keeps the key
-encrypted, caches answers separately by reasoning depth, rate-limits clients, and bounds input and
-output. Source discovery still works if it is unavailable or over budget.
-
-Cloudflare's free Worker tier is a better fit than a hosted Python process because network wait does
-not count as CPU time and the service performs only one small external request. The durable spend
-boundary remains the limited DeepSeek account/key. An explicit bring-your-own-key fallback keeps a
-limited key in session storage for the current tab and sends it directly to DeepSeek, never GitHub.
-Hugging Face currently permits only Static Spaces on the free account used here, so no dormant
-Gradio deployment is retained.
-
-Worker deployment uses the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets. Pages
-reads its endpoint from the `PUBLIC_RESEARCH_API_URL` repository variable; for this repository it is
-`https://bbc-news-archive-research.alastairherd.workers.dev/api/research`.
-
-## Semantic backfill
-
-The Raspberry Pi does not run the embedding model. Start `Refresh semantic analysis` manually
-with `limit` set to `0` and `run_deepseek` disabled. The public repository's GitHub-hosted CPU
-runner processes the full BGE backlog for free and uploads each 256-vector Parquet checkpoint.
-If a run reaches its time limit, starting it again discovers the uploaded hashes and resumes.
-
-For a paid-label backfill from this machine, each invocation processes up to the requested number
-of missing article versions and stops before its budget boundary:
+`./scripts/refresh_semantics.sh` processes only new content hashes. Each successful paid response
+is written synchronously to a SQLite checkpoint before more work starts, then buffered into
+content-addressed Parquet shards for publication.
 
 ```bash
+# Process up to 1,000 missing article versions
 ./scripts/refresh_semantics.sh 1000
+
+# Use the regular monthly ledger
+./scripts/refresh_semantics.sh 1000 --monthly
+
+# Keep checkpoints and shards locally
+./scripts/refresh_semantics.sh 1000 --local-only
 ```
 
-Use `--monthly` for the regular monthly ledger, or `--local-only` to retain checkpoints and shards
-without publishing them.
+Paid labelling enforces a `$1.00` process ceiling, `$7.50` historical ceiling, and `$1.00` monthly
+incremental ceiling. Ambiguous failures are recorded without automatic paid retries. Unpublished
+checkpoint rows remain part of the cumulative spend ledger.
+
+The `Refresh semantic analysis` workflow can run the BGE backlog on a GitHub-hosted CPU runner.
+Uploaded 256-vector checkpoints make timed-out runs resumable without repeating completed work.
+
+### Deployment configuration
+
+- Dataset publication uses the `HF_TOKEN` GitHub secret.
+- Worker deployment uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+- Pages reads the synthesis endpoint from the `PUBLIC_RESEARCH_API_URL` repository variable.
+
+</details>
 
 ## Repository layout
 
 ```text
-src/bbc_news_logger/   collector, schemas, publication, migration, marts
+src/bbc_news_logger/   collector, schemas, publication, migration, and marts
 tests/                 parser, storage, migration, and mart contract tests
-web/                   static Astro research interface
-services/fenic/        optional Fenic catalog, enrichment, MCP service, Dockerfile
-workers/research/      Cloudflare Worker for bounded cited DeepSeek synthesis
+web/                   Astro research interface and browser workers
+services/fenic/        optional Fenic catalog and MCP service
+workers/research/      bounded cited-synthesis Cloudflare Worker
 datasets/              Hugging Face dataset cards
-.github/workflows/     collection, publication, CI, and Pages deployment
+.github/workflows/     collection, publication, CI, and deployment
 ```
+
+## References
+
+The low-cost data-app architecture was informed by Spicy Data's
+[“A live data app for $0: DuckDB, Astro, and no BI tool”](https://spicydata.ai/blog/zero-dollar-data-app/).
+The retrieval-and-synthesis design also draws on the
+[Fenic Hacker News agent example](https://github.com/typedef-ai/fenic-examples/tree/main/hn_agent).
