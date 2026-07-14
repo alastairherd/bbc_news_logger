@@ -192,6 +192,35 @@ def test_embedding_refresh_normalizes_and_reports_checkpoint(
     assert '"rows_added": 1' in output
 
 
+def test_embedding_refresh_does_not_load_model_when_work_is_complete(monkeypatch, tmp_path) -> None:
+    start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    article_table = pa.Table.from_pylist(
+        [_article("hash-a", "Talks begin", start)], schema=ARTICLE_SCHEMA
+    )
+    embedding_table = pa.Table.from_pylist(
+        [_embedding("hash-a", 0, start)], schema=EMBEDDING_SCHEMA
+    )
+
+    def fake_tables(*_args, **_kwargs):
+        return {
+            "data/article_snapshots": article_table,
+            "semantic/embeddings": embedding_table,
+        }
+
+    def fail_if_loaded():
+        raise AssertionError("The embedding model must not load when there are no candidates")
+
+    monkeypatch.setattr("bbc_news_logger.semantics.download_dataset_tables", fake_tables)
+    monkeypatch.setattr("bbc_news_logger.semantics._default_embedder", fail_if_loaded)
+
+    report = run_embedding_refresh(output_dir=tmp_path)
+
+    assert report.candidates == 0
+    assert report.rows_added == 0
+    assert report.remaining == 0
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_clustering_joins_same_event_but_not_nearby_unrelated_story() -> None:
     start = datetime(2026, 7, 1, tzinfo=timezone.utc)
     articles = pa.Table.from_pylist(

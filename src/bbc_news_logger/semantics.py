@@ -425,6 +425,14 @@ def run_embedding_refresh(
         ),
         flush=True,
     )
+    if not selected:
+        return EmbeddingReport(
+            model=EMBEDDING_MODEL,
+            candidates=len(candidates),
+            rows_added=0,
+            shards_published=0,
+            remaining=len(candidates),
+        )
     model = embedder or _default_embedder()
     added = 0
     shards = 0

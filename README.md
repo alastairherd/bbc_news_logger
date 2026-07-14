@@ -22,7 +22,9 @@ GitHub Actions ───────────────► Hugging Face Par
        │                                   │
        ├── daily article + semantic refresh ─► Fenic catalog + optional MCP service
        │                                   │
-       └── checkpointed BGE backfill ───────► GitHub-hosted CPU runner
+       ├── checkpointed BGE backfill ───────► GitHub-hosted CPU runner
+       │
+       └── bounded cited synthesis ─────────► non-Docker Hugging Face CPU Space
 ```
 
 The Git repository contains code, schemas, tests, and interface assets only. Data is published as
@@ -113,10 +115,12 @@ meaning, and shows computed rising themes, surface skews, story-form mix, and co
 recurring-story timelines. Explore uses the same compact int8 vector index for related coverage.
 Coverage is always visible because historical enrichment can take more than one run.
 
-The next optional layer is a cited “ask the archive” service: Fenic would retrieve bounded evidence
-and a server-side model would synthesise an answer with links back to the archive. A Python-capable
-Hugging Face Space is a candidate runtime. It is deliberately separate from the static semantic
-search so the public site remains useful if that service is asleep, unavailable, or over budget.
+“Ask the archive” follows the same retrieval-then-synthesis pattern as the Fenic HN agent example.
+BGE retrieves the strongest matches locally in the browser, then a non-Docker Python Hugging Face
+Space sends at most ten validated BBC evidence rows to DeepSeek V4 Flash. Answers and findings cite
+the numbered results. The Space has caching, rate limits, bounded input/output, and a hard `$1.00`
+process ceiling. It is deliberately separate from static semantic search, so source discovery still
+works if the free Space is asleep, unavailable, or over budget.
 
 ## Semantic backfill
 
