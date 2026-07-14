@@ -24,7 +24,7 @@ GitHub Actions ───────────────► Hugging Face Par
        │                                   │
        ├── checkpointed BGE backfill ───────► GitHub-hosted CPU runner
        │
-       └── bounded cited synthesis ─────────► non-Docker Hugging Face CPU Space
+       └── bounded cited synthesis ─────────► Cloudflare Worker → DeepSeek
 ```
 
 The Git repository contains code, schemas, tests, and interface assets only. Data is published as
@@ -116,11 +116,17 @@ recurring-story timelines. Explore uses the same compact int8 vector index for r
 Coverage is always visible because historical enrichment can take more than one run.
 
 “Ask the archive” follows the same retrieval-then-synthesis pattern as the Fenic HN agent example.
-BGE retrieves the strongest matches locally in the browser, then a non-Docker Python Hugging Face
-Space sends at most ten validated BBC evidence rows to DeepSeek V4 Flash. Answers and findings cite
-the numbered results. The Space has caching, rate limits, bounded input/output, and a hard `$1.00`
-process ceiling. It is deliberately separate from static semantic search, so source discovery still
-works if the free Space is asleep, unavailable, or over budget.
+BGE retrieves the strongest matches locally in the browser, then a lightweight Cloudflare Worker
+sends at most ten validated BBC evidence rows to DeepSeek V4 Flash. Answers and findings cite the
+numbered results. The Worker keeps the key encrypted, caches identical answers, rate-limits clients,
+and bounds input and output. Source discovery still works if it is unavailable or over budget.
+
+Cloudflare's free Worker tier is a better fit than a hosted Python process because network wait does
+not count as CPU time and the service performs only one small external request. The durable spend
+boundary remains the limited DeepSeek account/key. An explicit bring-your-own-key fallback keeps a
+limited key in session storage for the current tab and sends it directly to DeepSeek, never GitHub.
+Hugging Face currently permits only Static Spaces on the free account used here, so no dormant
+Gradio deployment is retained.
 
 ## Semantic backfill
 
@@ -146,6 +152,7 @@ src/bbc_news_logger/   collector, schemas, publication, migration, marts
 tests/                 parser, storage, migration, and mart contract tests
 web/                   static Astro research interface
 services/fenic/        optional Fenic catalog, enrichment, MCP service, Dockerfile
+workers/research/      Cloudflare Worker for bounded cited DeepSeek synthesis
 datasets/              Hugging Face dataset cards
 .github/workflows/     collection, publication, CI, and Pages deployment
 ```
