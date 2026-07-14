@@ -102,9 +102,11 @@ which writes completed batches back to the Hugging Face dataset without rebuildi
 Semantic enrichment runs explicitly on a local machine with
 `./scripts/refresh_semantics.sh`. It bills only new content hashes and writes each successful
 eight-article response to a synchronous SQLite checkpoint before starting more paid work. Up to
-four requests run concurrently, and each completed batch is uploaded as an immutable Parquet
-shard. A hard `$1.00` process ceiling, `$7.50` historical ceiling, and `$1.00` monthly incremental
-ceiling limit spend. Ambiguous network failures are recorded without automatic paid retries.
+four requests run concurrently, and completed responses are buffered into 256-row immutable
+Parquet shards before upload. This keeps paid-call recovery granular without exhausting the Hugging
+Face repository commit quota. A hard `$1.00` process ceiling, `$7.50` historical ceiling, and
+`$1.00` monthly incremental ceiling limit spend. Ambiguous model failures are recorded without
+automatic paid retries; a Hub commit-rate response waits for its quota window and retries once.
 
 The resulting Signals dashboard shows theme, topic, story-form, and event-type trends plus
 recurring-story timelines. Coverage is always visible because historical enrichment can take more
