@@ -128,6 +128,10 @@ limited key in session storage for the current tab and sends it directly to Deep
 Hugging Face currently permits only Static Spaces on the free account used here, so no dormant
 Gradio deployment is retained.
 
+Worker deployment uses the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` GitHub secrets. Pages
+reads its endpoint from the `PUBLIC_RESEARCH_API_URL` repository variable; for this repository it is
+`https://bbc-news-archive-research.alastairherd.workers.dev/api/research`.
+
 ## Semantic backfill
 
 The Raspberry Pi does not run the embedding model. Start `Refresh semantic analysis` manually
