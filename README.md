@@ -1,7 +1,7 @@
-# BBC News Surface Lab
+# BBC News Analyser
 
-An independent longitudinal dataset and research interface for studying how stories move between
-the BBC News front page and Most Read list.
+An independent longitudinal dataset and research interface for studying how stories, themes, and
+recurring events move between the BBC News front page and Most Read list.
 
 - **Explore:** <https://alastairherd.github.io/bbc_news_logger/>
 - **Curated dataset:** <https://huggingface.co/datasets/AlastairH/bbc-news-logger>
@@ -85,6 +85,7 @@ reconstructed front-page position, selector risk, and interpretive limits.
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global request-rate limiter |
 | Refresh semantic analysis | After the daily article job | Embeds and labels only new content hashes, checkpoints results, and refreshes recurring-story clusters |
 | Deploy research dashboard | Every three hours and relevant pushes | Rebuilds marts from the public dataset and deploys GitHub Pages |
+| Deploy cited research Worker | Relevant Worker changes | Deploys the bounded DeepSeek synthesis endpoint to Cloudflare Workers |
 | CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks/build, and Fenic's API checker |
 
 All Actions jobs use least-privilege repository permissions, locked dependencies, timeouts,
@@ -109,17 +110,23 @@ Parquet shards before upload. This keeps paid-call recovery granular without exh
 Face repository commit quota. A hard `$1.00` process ceiling, `$7.50` historical ceiling, and
 `$1.00` monthly incremental ceiling limit spend. Ambiguous model failures are recorded without
 automatic paid retries; a Hub commit-rate response waits for its quota window and retries once.
+Unpublished checkpoint rows count towards the same cumulative ledger, so an expired Hub token or
+failed upload cannot make a resumed run undercount prior paid work.
 
-The resulting Signals dashboard loads BGE Small in the browser by default, searches the archive by
-meaning, and shows computed rising themes, surface skews, story-form mix, and conservative
-recurring-story timelines. Explore uses the same compact int8 vector index for related coverage.
-Coverage is always visible because historical enrichment can take more than one run.
+The Overview now leads with computed theme momentum, front-page versus Most Read skews, and
+recurring stories. Signals loads BGE Small in the browser by default, searches the archive by
+meaning, and exposes the underlying trends, story-form mix, and recurring-story timelines. Explore
+uses the same compact int8 vector index for related coverage and paginates the story archive in
+finite 15-row pages. Coverage is always visible because historical enrichment can take more than
+one run.
 
 “Ask the archive” follows the same retrieval-then-synthesis pattern as the Fenic HN agent example.
 BGE retrieves the strongest matches locally in the browser, then a lightweight Cloudflare Worker
 sends at most ten validated BBC evidence rows to DeepSeek V4 Flash. Answers and findings cite the
-numbered results. The Worker keeps the key encrypted, caches identical answers, rate-limits clients,
-and bounds input and output. Source discovery still works if it is unavailable or over budget.
+numbered results. Fast mode disables thinking; optional Reasoned and Deep analysis modes enable
+bounded [DeepSeek thinking](https://api-docs.deepseek.com/guides/thinking_mode). Private reasoning is never stored or exposed. The Worker keeps the key
+encrypted, caches answers separately by reasoning depth, rate-limits clients, and bounds input and
+output. Source discovery still works if it is unavailable or over budget.
 
 Cloudflare's free Worker tier is a better fit than a hosted Python process because network wait does
 not count as CPU time and the service performs only one small external request. The durable spend

@@ -1,5 +1,5 @@
 {
-  "name": "bbc-news-research-lab",
+  "name": "bbc-news-analyser",
   "private": true,
   "type": "module",
   "scripts": {

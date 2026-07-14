@@ -5,19 +5,23 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
 ---
 
 <Layout
-  title="BBC News Surface Lab — longitudinal news prominence"
-  description="Explore how stories move between the BBC News front page and Most Read list."
+  title="BBC News Analyser — longitudinal news prominence"
+  description="Analyse how BBC News stories, themes, and recurring events move between the front page and Most Read list."
   current="overview"
 >
   <div class="shell">
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Independent longitudinal dataset</p>
-        <h1>What rises, what stays, what gets read.</h1>
+        <p class="eyebrow">Independent longitudinal analysis</p>
+        <h1>See how the news agenda moves.</h1>
         <p>
-          Hourly observations of BBC News editorial prominence and audience attention,
-          structured for reproducible research rather than a passing feed.
+          Search years of BBC News coverage by meaning, follow recurring stories, and compare
+          what reaches the front page with what appears in Most Read.
         </p>
+        <div class="hero-actions">
+          <a class="button" href={`${base}signals/`}>Ask the archive <span aria-hidden="true">→</span></a>
+          <a class="button secondary" href={`${base}explore/`}>Browse stories</a>
+        </div>
       </div>
       <aside class="hero-note">
         <strong>Two surfaces, one timeline</strong>
@@ -53,6 +57,43 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
   </section>
 
   <div class="shell">
+    <section class="section overview-findings" aria-labelledby="findings-heading">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Latest computed findings</p>
+          <h2 id="findings-heading">What the labelled archive is showing</h2>
+        </div>
+        <p id="findings-window">Loading the latest comparable analysis window…</p>
+      </div>
+      <div class="overview-insights">
+        <article class="momentum-card">
+          <div class="insight-heading">
+            <span>Theme momentum</span>
+            <a href={`${base}signals/#trend-heading`}>Inspect trends →</a>
+          </div>
+          <div id="lead-theme" class="lead-finding"><p class="loading">Loading rising themes…</p></div>
+          <div id="theme-momentum" class="insight-list"></div>
+        </article>
+        <article class="surface-card">
+          <div class="insight-heading">
+            <span>Front page vs Most Read</span>
+            <a href={`${base}signals/#findings-heading`}>Compare surfaces →</a>
+          </div>
+          <p class="insight-explainer">Themes with the largest difference in their share of labelled coverage.</p>
+          <div id="surface-skews" class="insight-list"><p class="loading">Loading surface differences…</p></div>
+        </article>
+        <article class="returning-card">
+          <div class="insight-heading">
+            <span>Stories that return</span>
+            <a href={`${base}signals/#recurring-heading`}>Open timelines →</a>
+          </div>
+          <p class="insight-explainer">Events matched across distinct articles using labels, entities, and embeddings.</p>
+          <div id="returning-stories" class="returning-list"><p class="loading">Loading recurring stories…</p></div>
+        </article>
+      </div>
+      <p class="findings-caveat">These are model-assisted discovery signals, not claims about BBC intent or absolute audience size. Every finding can be opened against its underlying articles.</p>
+    </section>
+
     <section class="section" aria-labelledby="activity-heading">
       <div class="section-head">
         <div>
@@ -79,32 +120,6 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       </figure>
     </section>
 
-    <section class="section" aria-labelledby="questions-heading">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">Designed for inquiry</p>
-          <h2 id="questions-heading">Questions the record can support</h2>
-        </div>
-        <a class="button secondary" href={`${base}explore/`}>Open the explorer <span aria-hidden="true">→</span></a>
-      </div>
-      <div class="questions">
-        <article class="question">
-          <span class="number">01 / PROMINENCE</span>
-          <h3>How long does a story retain a visible position?</h3>
-          <p>Follow every observed rank from first appearance to last, without reducing a story to a daily snapshot.</p>
-        </article>
-        <article class="question">
-          <span class="number">02 / TRANSFER</span>
-          <h3>When does attention follow editorial placement?</h3>
-          <p>Compare each story’s first appearance across surfaces and inspect the lag in either direction.</p>
-        </article>
-        <article class="question">
-          <span class="number">03 / ABSENCE</span>
-          <h3>Which popular stories never appear in the recorded front-page set?</h3>
-          <p>Filter by surface and time window, while keeping the limits of the captured page regions explicit.</p>
-        </article>
-      </div>
-    </section>
   </div>
 
   <script>
@@ -121,6 +136,17 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       storyCount: number;
     }
 
+    interface ThemeChange { theme: string; recentCount: number; previousCount: number; changePercentagePoints: number }
+    interface SurfaceDifference { theme: string; differencePercentagePoints: number }
+    interface ReturningStory { cluster_id: string; label: string; article_count: number; last_seen: string }
+    interface Findings {
+      window: null | { recentStart: string; recentEnd: string; recentLabelledArticles: number; previousLabelledArticles: number };
+      risingThemes: ThemeChange[];
+      fallingThemes: ThemeChange[];
+      surfaceDifferences: SurfaceDifference[];
+      returningStories: ReturningStory[];
+    }
+
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const number = new Intl.NumberFormat("en-GB");
     const shortDate = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
@@ -130,6 +156,32 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       if (!value) throw new Error(`Missing element: ${selector}`);
       return value;
     };
+
+    const escape = (value: unknown): string => {
+      const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
+      return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
+    };
+
+    function queryLink(theme: string): string {
+      return `${base}signals/?q=${encodeURIComponent(`How has coverage of ${theme} changed?`)}`;
+    }
+
+    function renderFindings(findings: Findings) {
+      if (!findings.window) return;
+      const { recentStart, recentEnd, recentLabelledArticles, previousLabelledArticles } = findings.window;
+      element("#findings-window").textContent = `${shortDate.format(new Date(recentStart))}–${shortDate.format(new Date(recentEnd))}, compared with the previous 14 days · ${number.format(recentLabelledArticles + previousLabelledArticles)} labelled article versions`;
+      const [lead, ...rising] = findings.risingThemes;
+      if (lead) {
+        element("#lead-theme").innerHTML = `<span class="lead-change">+${lead.changePercentagePoints.toFixed(2)}<small>pp</small></span><div><h3>${escape(lead.theme)}</h3><p>${number.format(lead.recentCount)} recent articles, up from ${number.format(lead.previousCount)} in the prior window.</p><a href="${queryLink(lead.theme)}">Ask about this theme →</a></div>`;
+      }
+      const momentum = [...rising.slice(0, 3), ...findings.fallingThemes.slice(0, 2)];
+      element("#theme-momentum").innerHTML = momentum.map((row) => `<a href="${queryLink(row.theme)}"><strong>${escape(row.theme)}</strong><span class="${row.changePercentagePoints >= 0 ? "up" : "down"}">${row.changePercentagePoints >= 0 ? "+" : ""}${row.changePercentagePoints.toFixed(2)} pp</span></a>`).join("");
+      element("#surface-skews").innerHTML = findings.surfaceDifferences.slice(0, 6).map((row) => {
+        const destination = row.differencePercentagePoints >= 0 ? "Most Read" : "Front page";
+        return `<a href="${queryLink(row.theme)}"><strong>${escape(row.theme)}</strong><span>${escape(destination)} · ${Math.abs(row.differencePercentagePoints).toFixed(2)} pp</span></a>`;
+      }).join("") || `<p class="loading">More labelled coverage is needed for this comparison.</p>`;
+      element("#returning-stories").innerHTML = findings.returningStories.slice(0, 4).map((story, index) => `<a href="${base}signals/#recurring-heading"><span>${String(index + 1).padStart(2, "0")}</span><strong>${escape(story.label)}</strong><small>${number.format(story.article_count)} articles · latest ${shortDate.format(new Date(story.last_seen))}</small></a>`).join("") || `<p class="loading">No conservative recurring-story clusters yet.</p>`;
+    }
 
     function drawChart(rows: DayRow[]) {
       const svg = document.querySelector("#daily-chart");
@@ -156,7 +208,8 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     Promise.all([
       fetch(`${base}data/manifest.json`).then((response) => response.json()),
       fetch(`${base}data/daily.json`).then((response) => response.json()),
-    ]).then(([manifest, daily]: [MartManifest, DayRow[]]) => {
+      fetch(`${base}data/semantic-findings.json`).then((response) => response.json()),
+    ]).then(([manifest, daily, findings]: [MartManifest, DayRow[], Findings]) => {
       element("#observation-count").textContent = number.format(manifest.observationCount);
       element("#story-count").textContent = number.format(manifest.storyCount);
       const latest = new Date(manifest.latestObservationAt);
@@ -165,6 +218,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       element("#collection-status").textContent = hours < 3 ? "Current" : "Delayed";
       element("#generated-at").textContent = `marts built ${shortDate.format(new Date(manifest.generatedAt))}`;
       drawChart(daily);
+      renderFindings(findings);
     }).catch(() => {
       element("#collection-status").textContent = "Unavailable";
       element("#generated-at").textContent = "static mart could not be loaded";
