@@ -28,21 +28,22 @@ for (const [page, html] of output) {
 const index = output.find(([page]) => page === "index.html")?.[1] ?? "";
 const explore = output.find(([page]) => page === "explore/index.html")?.[1] ?? "";
 const signals = output.find(([page]) => page === "signals/index.html")?.[1] ?? "";
-const exploreScripts = await Promise.all(
-  [...explore.matchAll(/src="(\/bbc_news_logger\/[^\"]+\.js)"/g)].map((match) =>
+async function routeScripts(html) {
+  return Promise.all(
+    [...html.matchAll(/src="(\/bbc_news_logger\/[^\"]+\.js)"/g)].map((match) =>
     readFile(new URL(`../dist/${match[1].slice(base.length)}`, import.meta.url), "utf8"),
-  ),
-);
+    ),
+  );
+}
+const indexScripts = await routeScripts(index);
+const exploreScripts = await routeScripts(explore);
 const exploreOutput = `${explore}\n${exploreScripts.join("\n")}`;
-const signalScripts = await Promise.all(
-  [...signals.matchAll(/src="(\/bbc_news_logger\/[^\"]+\.js)"/g)].map((match) =>
-    readFile(new URL(`../dist/${match[1].slice(base.length)}`, import.meta.url), "utf8"),
-  ),
-);
+const signalScripts = await routeScripts(signals);
 const signalOutput = `${signals}\n${signalScripts.join("\n")}`;
+const indexOutput = `${index}\n${indexScripts.join("\n")}`;
 
 for (const mart of ["data/manifest.json", "data/daily.json"]) {
-  if (!index.includes(mart)) throw new Error(`index.html is missing mart request: ${mart}`);
+  if (!indexOutput.includes(mart)) throw new Error(`index route is missing mart request: ${mart}`);
 }
 
 for (const mart of ["data/stories.json", "data/rank-series.json"]) {

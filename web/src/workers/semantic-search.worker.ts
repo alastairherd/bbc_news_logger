@@ -1,5 +1,3 @@
-import { pipeline } from "@huggingface/transformers";
-
 interface SemanticDocument {
   story_id: string;
   content_sha256: string;
@@ -136,6 +134,8 @@ async function loadIndex(metadataUrl: string, vectorsUrl: string) {
 async function loadModel() {
   send("status", { phase: "model-loading", message: "Loading BGE Small for semantic queries…" });
   try {
+    const { env, pipeline } = await import("@huggingface/transformers");
+    if (env.backends.onnx.wasm) env.backends.onnx.wasm.numThreads = 1;
     extractor = (await pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", {
       dtype: "q8",
       device: "wasm",

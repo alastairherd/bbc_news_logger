@@ -118,6 +118,7 @@ def compact_remote_dataset(
             repo_type="dataset",
             operations=operations,
             commit_message="Compact dashboard dataset shards",
+            parent_commit=snapshot.name,
         )
     return report
 

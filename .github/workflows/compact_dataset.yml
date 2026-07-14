@@ -1,0 +1,41 @@
+name: Compact Hugging Face dataset
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 4 * * 0"
+
+concurrency:
+  group: bbc-news-compaction
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install the locked runtime
+        run: uv sync --frozen --no-dev
+      - name: Fold incremental shards into compact bases
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if uv run --no-sync bbc-news compact-dataset --publish; then
+              exit 0
+            fi
+            if [[ "$attempt" == "3" ]]; then
+              exit 1
+            fi
+            echo "Dataset changed during compaction; retrying from the new revision."
+            sleep 20
+          done
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
