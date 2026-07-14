@@ -178,7 +178,9 @@
   .method-nav a { display: block; padding: .7rem 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .82rem; text-decoration: none; }
   .prose section { padding: 0 0 3.8rem; }
   .prose h2 { font-size: clamp(1.7rem, 3vw, 2.7rem); margin-bottom: 1.2rem; }
+  .prose p { max-width: 72ch; text-wrap: pretty; }
   .prose p + p { margin-top: 1rem; }
+  .prose a { color: var(--signal); font-weight: 620; }
   .prose code { font: .85em var(--mono); background: var(--signal-soft); padding: .12rem .3rem; }
   .schema { margin-top: 1.5rem; border-top: 1px solid var(--line-strong); }
   .schema div { display: grid; grid-template-columns: 11rem 1fr; gap: 1rem; padding: .65rem 0; border-bottom: 1px solid var(--line); }

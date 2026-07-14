@@ -69,7 +69,7 @@ Append-only Parquet shards make routine updates small. A weekly compare-and-swap
 older shards into compressed base files without racing new collection writes. Dashboard and Fenic
 readers see the base and incremental layers as the same logical tables.
 
-## How we built it
+## How it was made
 
 BBC News Analyser was built as a sequence of small, auditable systems rather than as one large
 application. Each new capability had to preserve the data already collected and remain cheap to
@@ -96,11 +96,11 @@ run unattended.
    interface keeps retrieval results visible so a generated answer can always be checked against
    the archive.
 
-The development process followed the same evidence-first pattern. A human set the research goals,
-interpretive limits, and cost boundaries; an AI coding agent inspected the repository and live
-outputs, implemented scoped changes, ran tests and workflows, and measured the deployed result.
-Each iteration was then reviewed against real data and real browser behaviour before the next one
-began.
+The development process followed the same evidence-first pattern. I set the research goals,
+interpretive limits, and cost boundaries, then used an AI coding agent to inspect the repository
+and live outputs, implement scoped changes, run tests and workflows, and measure the deployed
+result. I reviewed each iteration against real data and real browser behaviour before starting the
+next one.
 
 That measurement loop mattered. For example, profiling a frozen trends interface showed that it
 was creating 26,521 theme options and repeatedly scanning 70,685 rows on the browser thread. The
@@ -111,13 +111,16 @@ technology in the architecture.
 
 ## Dataset
 
-The main public dataset exposes three core configurations:
+The main public dataset exposes six configurations:
 
 | Configuration | Grain |
 | --- | --- |
 | `observations` | One row for each captured story position in each successful scrape |
 | `article_snapshots` | Parsed metadata and text for each daily article URL set |
 | `scrape_runs` | Validation and operational metadata for each collection attempt |
+| `story_signals` | Versioned DeepSeek labels and summaries for each analysed content hash |
+| `article_embeddings` | Normalized 384-dimensional BGE Small vectors for semantic retrieval |
+| `recurring_events` | Reproducible recurring-story membership derived from vectors and structured evidence |
 
 Stable `story_id` values come from normalized canonical URLs. Every Parquet file carries a schema
 version, and publication uses idempotent record keys so rerunning a workflow does not duplicate a
