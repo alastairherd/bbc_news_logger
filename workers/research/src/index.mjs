@@ -5,6 +5,7 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:4321",
   "http://127.0.0.1:4321",
 ]);
+const PROMPT_VERSION = "2026-07-14-v2";
 const requestsByClient = new Map();
 
 function headers(origin) {
@@ -57,19 +58,19 @@ export default {
     if (!ALLOWED_ORIGINS.has(origin)) return json({ detail: "Origin is not allowed." }, 403, origin);
     if (rateLimited(request)) return json({ detail: "Please wait before asking another archive question." }, 429, origin);
     const contentLength = Number(request.headers.get("Content-Length") ?? 0);
-    if (contentLength > 40_000) return json({ detail: "Evidence payload is too large." }, 413, origin);
+    if (contentLength > 80_000) return json({ detail: "Evidence payload is too large." }, 413, origin);
 
     let normalized;
     try {
       const text = await request.text();
-      if (text.length > 40_000) throw new InputError("Evidence payload is too large.");
+      if (text.length > 80_000) throw new InputError("Evidence payload is too large.");
       normalized = normalizeRequest(JSON.parse(text));
     } catch (error) {
       const detail = error instanceof SyntaxError ? "Request body must be valid JSON." : error.message;
       return json({ detail }, 422, origin);
     }
 
-    const canonical = JSON.stringify(normalized);
+    const canonical = JSON.stringify({ promptVersion: PROMPT_VERSION, ...normalized });
     const cacheKey = new Request(`https://archive-answer-cache.invalid/${await digest(canonical)}`);
     const cache = caches.default;
     const cached = await cache.match(cacheKey);

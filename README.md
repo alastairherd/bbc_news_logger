@@ -35,6 +35,11 @@ The historical migration preserved 171,887 position observations and 18,892 arti
 1,223 audited destination files. See `migration/manifest.json` in the curated dataset for source
 and destination hashes, row counts, and the source commit.
 
+The low-cost data-app architecture was informed by Spicy Data's
+[“A live data app for $0: DuckDB, Astro, and no BI tool”](https://spicydata.ai/blog/zero-dollar-data-app/).
+Its pull → DuckDB marts → Astro interface → scheduled refresh pattern is a useful reference for
+building a bespoke public data product without a warehouse or per-seat BI service.
+
 ## Local development
 
 Requires Python 3.10–3.12 and [uv](https://docs.astral.sh/uv/). The dashboard requires Node 22.
@@ -81,6 +86,8 @@ The compact bases are an LSM-style storage layer: scheduled jobs continue to app
 incremental shards, while an occasional `compact-dataset --publish` atomically folds them into the
 base files. Dashboard and Fenic readers load both layers, reducing a clean deployment from more
 than a thousand HTTP object fetches to five without changing the tables or incremental workflow.
+The weekly compaction Action supplies the snapshot revision as a compare-and-swap guard, so a
+simultaneous collection commit makes compaction fail safely rather than delete unseen rows.
 
 The dataset cards and the dashboard's Methodology page document repaired legacy fields,
 reconstructed front-page position, selector risk, and interpretive limits.
@@ -92,6 +99,7 @@ reconstructed front-page position, selector risk, and interpretive limits.
 | Collect BBC News observations | Hourly at `:07` | Validates both surfaces and upserts observations/run metadata to Hugging Face |
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global request-rate limiter |
 | Refresh semantic analysis | After the daily article job | Embeds and labels only new content hashes, checkpoints results, and refreshes recurring-story clusters |
+| Compact Hugging Face dataset | Weekly on Sunday | Atomically folds incremental Parquet shards into four compact bases |
 | Deploy research dashboard | Every three hours and relevant pushes | Rebuilds marts from the public dataset and deploys GitHub Pages |
 | Deploy cited research Worker | Relevant Worker changes | Deploys the bounded DeepSeek synthesis endpoint to Cloudflare Workers |
 | CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks/build, and Fenic's API checker |
@@ -130,9 +138,11 @@ one run.
 
 “Ask the archive” follows the same retrieval-then-synthesis pattern as the Fenic HN agent example.
 BGE retrieves the strongest matches locally in the browser, then a lightweight Cloudflare Worker
-sends at most ten validated BBC evidence rows to DeepSeek V4 Flash. Answers and findings cite the
-numbered results. Fast mode disables thinking; optional Reasoned and Deep analysis modes enable
-bounded [DeepSeek thinking](https://api-docs.deepseek.com/guides/thinking_mode). Private reasoning is never stored or exposed. The Worker keeps the key
+sends at most twenty validated BBC evidence rows to DeepSeek V4 Flash. The synthesis prompt ranks
+relevance, distinguishes reported claims from established facts, and surfaces counter-evidence.
+Answers and findings cite the numbered results. Fast mode disables thinking; optional Reasoned and
+Deep analysis modes enable bounded [DeepSeek thinking](https://api-docs.deepseek.com/guides/thinking_mode).
+Private reasoning is never stored or exposed. The Worker keeps the key
 encrypted, caches answers separately by reasoning depth, rate-limits clients, and bounds input and
 output. Source discovery still works if it is unavailable or over budget.
 

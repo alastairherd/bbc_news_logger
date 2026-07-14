@@ -150,6 +150,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const number = new Intl.NumberFormat("en-GB");
     const shortDate = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+    const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
 
     const element = (selector: string): HTMLElement => {
       const value = document.querySelector<HTMLElement>(selector);
@@ -186,7 +187,9 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     function drawChart(rows: DayRow[]) {
       const svg = document.querySelector("#daily-chart");
       if (!(svg instanceof SVGElement) || !rows.length) return;
-      const recent = rows.slice(-120);
+      const currentUtcDay = new Date().toISOString().slice(0, 10);
+      const recent = rows.filter((row) => row.observed_date < currentUtcDay).slice(-120);
+      if (!recent.length) return;
       const width = 1000;
       const height = 300;
       const pad = { top: 18, right: 16, bottom: 34, left: 44 };
@@ -202,7 +205,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       const end = recent[recent.length - 1]!.observed_date;
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
       svg.innerHTML = `${grid}<polyline class="front" points="${points("front_page_stories")}"/><polyline class="read" points="${points("most_read_stories")}"/><text x="${pad.left}" y="${height - 5}">${start}</text><text text-anchor="end" x="${width - pad.right}" y="${height - 5}">${end}</text>`;
-      element("#chart-range").textContent = `${shortDate.format(new Date(start))} – ${shortDate.format(new Date(end))} · last ${recent.length} observed days`;
+      element("#chart-range").textContent = `${shortDate.format(new Date(start))} – ${shortDate.format(new Date(end))} · last ${recent.length} completed UTC days`;
     }
 
     Promise.all([
@@ -213,10 +216,10 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       element("#observation-count").textContent = number.format(manifest.observationCount);
       element("#story-count").textContent = number.format(manifest.storyCount);
       const latest = new Date(manifest.latestObservationAt);
-      element("#latest-date").textContent = shortDate.format(latest);
+      element("#latest-date").textContent = dateTime.format(latest);
       const hours = (Date.now() - latest.getTime()) / 3_600_000;
       element("#collection-status").textContent = hours < 3 ? "Current" : "Delayed";
-      element("#generated-at").textContent = `marts built ${shortDate.format(new Date(manifest.generatedAt))}`;
+      element("#generated-at").textContent = `marts built ${dateTime.format(new Date(manifest.generatedAt))} UTC`;
       drawChart(daily);
       renderFindings(findings);
     }).catch(() => {

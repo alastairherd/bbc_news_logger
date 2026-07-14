@@ -15,9 +15,14 @@ const row = {
 };
 
 test("normalization accepts only bounded unique BBC evidence", () => {
-  const value = normalizeRequest({ query: "What changed?", evidence: Array(20).fill(row) });
-  assert.equal(value.evidence.length, 1);
+  const rows = Array.from({ length: 25 }, (_, index) => ({
+    ...row,
+    url: `https://www.bbc.co.uk/news/articles/example-${index}`,
+  }));
+  const value = normalizeRequest({ query: "What changed?", evidence: rows });
+  assert.equal(value.evidence.length, 20);
   assert.equal(value.evidence[0].id, 1);
+  assert.equal(value.evidence.at(-1).id, 20);
   assert.equal(value.reasoning, "off");
   assert.throws(
     () => normalizeRequest({ query: "What changed?", evidence: [{ ...row, url: "https://example.com" }] }),
@@ -30,6 +35,7 @@ test("DeepSeek request defaults to bounded non-thinking mode", () => {
   assert.equal(body.model, "deepseek-v4-flash");
   assert.deepEqual(body.thinking, { type: "disabled" });
   assert.equal(body.max_tokens, 900);
+  assert.match(body.messages[0].content, /Never turn correlation, allegation, or concern into proven causation/);
 });
 
 test("DeepSeek request supports bounded high and maximum reasoning", () => {
