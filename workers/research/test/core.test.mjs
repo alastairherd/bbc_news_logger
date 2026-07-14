@@ -18,17 +18,28 @@ test("normalization accepts only bounded unique BBC evidence", () => {
   const value = normalizeRequest({ query: "What changed?", evidence: Array(20).fill(row) });
   assert.equal(value.evidence.length, 1);
   assert.equal(value.evidence[0].id, 1);
+  assert.equal(value.reasoning, "off");
   assert.throws(
     () => normalizeRequest({ query: "What changed?", evidence: [{ ...row, url: "https://example.com" }] }),
     InputError,
   );
 });
 
-test("DeepSeek request is JSON, non-thinking, and output-bounded", () => {
+test("DeepSeek request defaults to bounded non-thinking mode", () => {
   const body = deepSeekRequest("What changed?", [{ ...row, id: 1 }]);
   assert.equal(body.model, "deepseek-v4-flash");
   assert.deepEqual(body.thinking, { type: "disabled" });
   assert.equal(body.max_tokens, 900);
+});
+
+test("DeepSeek request supports bounded high and maximum reasoning", () => {
+  const high = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "high");
+  assert.deepEqual(high.thinking, { type: "enabled" });
+  assert.equal(high.reasoning_effort, "high");
+  assert.equal(high.max_tokens, 2500);
+  const maximum = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "max");
+  assert.equal(maximum.reasoning_effort, "max");
+  assert.equal(maximum.max_tokens, 5000);
 });
 
 test("completion parsing removes invented citations and calculates cost", () => {

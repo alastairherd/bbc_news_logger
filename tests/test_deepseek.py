@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -19,6 +20,7 @@ from bbc_news_logger.deepseek import (
     parse_signal_batch,
     parse_signals,
     parse_usage,
+    recorded_scope_spend,
     token_cost_usd,
     truncate_utf8,
 )
@@ -81,6 +83,20 @@ def test_run_budget_cannot_be_raised_above_one_dollar() -> None:
         budget.reserve(Decimal("0.02"))
 
 
+def test_persisted_checkpoint_spend_is_deduplicated_for_the_budget_ledger() -> None:
+    row = {
+        "content_sha256": "hash-a",
+        "model": DEEPSEEK_MODEL,
+        "prompt_version": "v1",
+        "deepseek_response_id": "response-a",
+        "generated_at": datetime.now(timezone.utc),
+        "request_cost_usd": 0.002,
+    }
+    second = {**row, "content_sha256": "hash-b", "deepseek_response_id": "response-b"}
+
+    assert recorded_scope_spend([row, dict(row), second], "backfill") == Decimal("0.004")
+
+
 def test_input_is_truncated_on_utf8_boundary() -> None:
     value = truncate_utf8("é" * MAX_INPUT_BYTES)
     assert len(value.encode("utf-8")) <= MAX_INPUT_BYTES
@@ -96,6 +112,33 @@ def test_signal_parser_rejects_uncontrolled_topics() -> None:
     payload["topic"] = "celebrity gossip"
     with pytest.raises(DeepSeekError, match="unsupported topic"):
         parse_signals(json.dumps(payload))
+
+
+def test_signal_parser_accepts_education_as_a_stable_topic() -> None:
+    payload = json.loads(signal_json())
+    payload["topic"] = "education"
+
+    assert parse_signals(json.dumps(payload)).topic == "education"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("weather", "science_and_environment"),
+        ("environment", "science_and_environment"),
+        ("crime", "other"),
+        ("uk", "other"),
+        ("travel", "other"),
+        ("transport", "other"),
+        ("religion", "other"),
+        ("lifestyle", "other"),
+    ],
+)
+def test_signal_parser_normalizes_predictable_topic_aliases(raw: str, expected: str) -> None:
+    payload = json.loads(signal_json())
+    payload["topic"] = raw
+
+    assert parse_signals(json.dumps(payload)).topic == expected
 
 
 def test_usage_parser_accounts_for_cache_hits() -> None:

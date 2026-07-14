@@ -24,7 +24,7 @@ if not table_names:
 
 server = fc.create_mcp_server(
     session,
-    server_name="BBC News Research Lab",
+    server_name="BBC News Analyser",
     system_tools=fc.SystemToolConfig(
         table_names=table_names,
         tool_namespace="bbc_news",

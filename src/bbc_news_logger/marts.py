@@ -272,9 +272,18 @@ def _semantic_findings(
         key=lambda row: abs(float(row["differencePercentagePoints"])), reverse=True
     )
     changes.sort(key=lambda row: float(row["changePercentagePoints"]), reverse=True)
+    prominent_recurring = sorted(
+        recurring,
+        key=lambda event: (
+            int(event["article_count"]),
+            int(event["version_count"]),
+            str(event["last_seen"]),
+        ),
+        reverse=True,
+    )
     returning = [
         {key: value for key, value in event.items() if key != "articles"}
-        for event in recurring[:8]
+        for event in prominent_recurring[:8]
     ]
     return {
         "window": {

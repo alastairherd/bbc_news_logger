@@ -49,7 +49,7 @@ export default {
       return new Response(null, { status: ALLOWED_ORIGINS.has(origin) ? 204 : 403, headers: headers(origin) });
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return json({ status: "ok", model: "deepseek-v4-flash", runtime: "cloudflare-workers" }, 200, origin);
+      return json({ status: "ok", model: "deepseek-v4-flash", runtime: "cloudflare-workers", reasoningModes: ["off", "high", "max"] }, 200, origin);
     }
     if (request.method !== "POST" || url.pathname !== "/api/research") {
       return json({ detail: "Not found." }, 404, origin);
@@ -81,11 +81,11 @@ export default {
       provider = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: { "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify(deepSeekRequest(normalized.query, normalized.evidence)),
+        body: JSON.stringify(deepSeekRequest(normalized.query, normalized.evidence, normalized.reasoning)),
       });
       const payload = await provider.json();
       if (!provider.ok) throw new Error(String(payload?.error?.message ?? `DeepSeek returned ${provider.status}`));
-      const answer = parseCompletion(payload, normalized.evidence.length);
+      const answer = parseCompletion(payload, normalized.evidence.length, normalized.reasoning);
       const cacheResponse = new Response(JSON.stringify(answer), {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=86400" },
       });

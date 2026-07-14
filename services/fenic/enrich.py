@@ -7,7 +7,6 @@ import json
 import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -24,6 +23,7 @@ from bbc_news_logger.deepseek import (
     DeepSeekClient,
     RunBudget,
     maximum_batch_request_cost_usd,
+    recorded_scope_spend,
 )
 from bbc_news_logger.semantics import (
     SIGNAL_PREFIX,
@@ -57,33 +57,11 @@ class EnrichmentReport:
     failures: int
     remaining: int
     stopped_for_budget: bool
+    publish_deferred: bool
 
 
 def _scope_spend(table: pa.Table | None, scope: str) -> Decimal:
-    if table is None:
-        return Decimal("0")
-    now = datetime.now(timezone.utc)
-    total = Decimal("0")
-    seen: set[tuple[str, str, str]] = set()
-    for row in table.to_pylist():
-        content_hash = str(row.get("content_sha256") or "")
-        identity = (
-            content_hash,
-            str(row.get("prompt_version") or ""),
-            str(row.get("deepseek_response_id") or ""),
-        )
-        if not content_hash or identity in seen:
-            continue
-        if row.get("model") != DEEPSEEK_MODEL:
-            continue
-        generated = row.get("generated_at")
-        if scope == "monthly" and (
-            generated is None or generated.year != now.year or generated.month != now.month
-        ):
-            continue
-        seen.add(identity)
-        total += Decimal(str(row.get("request_cost_usd") or 0))
-    return total
+    return recorded_scope_spend(table.to_pylist(), scope) if table is not None else Decimal("0")
 
 
 def _batches(rows: list[dict[str, Any]], size: int) -> list[list[dict[str, Any]]]:
@@ -150,11 +128,6 @@ def enrich(
     if article_table is None:
         raise FileNotFoundError(f"No article snapshots found in {dataset_id}")
 
-    prior_spend = _scope_spend(signal_table, scope)
-    scope_cap = MAX_BACKFILL_BUDGET_USD if scope == "backfill" else MAX_MONTHLY_BUDGET_USD
-    scope_remaining = max(Decimal("0"), scope_cap - prior_spend)
-    process_cap = min(maximum_cost_usd, scope_remaining)
-
     checkpoint = SemanticCheckpoint(checkpoint_path)
     try:
         remote_done = completed_hashes(
@@ -166,16 +139,41 @@ def enrich(
         local_rows = [
             row for row in checkpoint.rows() if str(row["content_sha256"]) not in remote_done
         ]
+        remote_spend = _scope_spend(signal_table, scope)
+        local_spend = recorded_scope_spend(local_rows, scope)
+        prior_spend = remote_spend + local_spend
+        scope_cap = (
+            MAX_BACKFILL_BUDGET_USD if scope == "backfill" else MAX_MONTHLY_BUDGET_USD
+        )
+        scope_remaining = max(Decimal("0"), scope_cap - prior_spend)
+        process_cap = min(maximum_cost_usd, scope_remaining)
         published_from_checkpoint = 0
+        publish_deferred = False
         if publish:
             for rows in _batches(local_rows, REMOTE_SIGNAL_SHARD_ROWS):
                 table = pa.Table.from_pylist(rows, schema=SIGNAL_SCHEMA)
-                publish_shard(
-                    table,
-                    prefix=SIGNAL_PREFIX,
-                    dataset_id=dataset_id,
-                    message=f"Checkpoint {len(rows)} DeepSeek story signals",
-                )
+                try:
+                    publish_shard(
+                        table,
+                        prefix=SIGNAL_PREFIX,
+                        dataset_id=dataset_id,
+                        message=f"Checkpoint {len(rows)} DeepSeek story signals",
+                    )
+                except Exception as exc:
+                    publish = False
+                    publish_deferred = True
+                    print(
+                        json.dumps(
+                            {
+                                "event": "deepseek_publish_deferred",
+                                "reason": str(exc)[:500],
+                                "rows_safe_in_checkpoint": len(local_rows),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                    break
                 published_from_checkpoint += len(rows)
                 remote_done.update(str(row["content_sha256"]) for row in rows)
 
@@ -267,20 +265,49 @@ def enrich(
                     )
             if publish and wave_rows:
                 rows_waiting_for_publish.extend(wave_rows)
+                try:
+                    _publish_ready_rows(
+                        rows_waiting_for_publish,
+                        dataset_id=dataset_id,
+                        rows_added=rows_added,
+                        force=False,
+                    )
+                except Exception as exc:
+                    publish = False
+                    publish_deferred = True
+                    print(
+                        json.dumps(
+                            {
+                                "event": "deepseek_publish_deferred",
+                                "reason": str(exc)[:500],
+                                "rows_safe_in_checkpoint": len(checkpoint.completed_hashes()),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+
+        if publish:
+            try:
                 _publish_ready_rows(
                     rows_waiting_for_publish,
                     dataset_id=dataset_id,
                     rows_added=rows_added,
-                    force=False,
+                    force=True,
                 )
-
-        if publish:
-            _publish_ready_rows(
-                rows_waiting_for_publish,
-                dataset_id=dataset_id,
-                rows_added=rows_added,
-                force=True,
-            )
+            except Exception as exc:
+                publish_deferred = True
+                print(
+                    json.dumps(
+                        {
+                            "event": "deepseek_publish_deferred",
+                            "reason": str(exc)[:500],
+                            "rows_safe_in_checkpoint": len(checkpoint.completed_hashes()),
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
 
         return EnrichmentReport(
             model=DEEPSEEK_MODEL,
@@ -295,6 +322,7 @@ def enrich(
             failures=failure_count,
             remaining=max(0, len(candidates) - rows_added),
             stopped_for_budget=stopped_for_budget,
+            publish_deferred=publish_deferred,
         )
     finally:
         checkpoint.close()

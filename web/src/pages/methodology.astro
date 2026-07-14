@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout
-  title="Methodology — BBC News Surface Lab"
+  title="Methodology — BBC News Analyser"
   description="Collection, storage, validation, and limitations for the BBC News Surface Observations dataset."
   current="methodology"
 >
@@ -13,7 +13,7 @@ import Layout from "../layouts/Layout.astro";
         <p class="eyebrow">Versioned methodology</p>
         <h1>A transparent collection, including its limits.</h1>
       </div>
-      <p>Schema version 1 · selector version 2026-07 · timestamps and daily partitions use UTC.</p>
+      <p>Dataset schema version 2 · selector version 2026-07 · timestamps and daily partitions use UTC.</p>
     </header>
 
     <div class="method-grid">
@@ -63,8 +63,9 @@ import Layout from "../layouts/Layout.astro";
           <p>Each distinct article content hash can receive two versioned derivatives. BGE Small produces a normalized 384-dimensional vector from the headline and opening article text. DeepSeek V4 Flash produces a validated topic, themes, story form, event type, event label, summary, and named entities.</p>
           <p>Paid requests contain no more than eight articles and run with a maximum concurrency of four. Results are committed to a synchronous local checkpoint before more paid work starts, then uploaded as content-addressed Parquet shards. The process enforces a $1 process ceiling, a $7.50 historical ceiling, and a $1 monthly incremental ceiling.</p>
           <p>The static site publishes one newest embedded version per story as a row-aligned, int8-quantised vector index. On the Signals page, BGE Small loads automatically through Transformers.js and embeds each query locally in the visitor's browser; query text is not sent to this project. The Explore page uses the same index to rank related coverage without loading the query model.</p>
+          <p>Overview findings are computed only from completed structured labels. Theme momentum compares theme share in adjacent 14-day windows, normalised by the number of labelled article versions in each window. Surface differences compare each theme's labelled share on the front page with its share in Most Read. Counts describe fetched article versions and captured positions, not readership.</p>
           <p>Recurring stories are joined conservatively. Versions with the same story identifier stay together; a different story must fall within 45 days, match the cluster anchor's event type, and combine strong vector similarity with shared named entities or event-label evidence. Anchor validation prevents a chain of individually similar articles from merging unrelated events. These outputs are discovery aids rather than editorial classifications or verified factual claims.</p>
-          <div class="notice"><strong>Hosted cited analysis.</strong> “Ask the archive” sends at most ten locally retrieved BBC evidence rows to a lightweight Cloudflare Worker for bounded DeepSeek synthesis. Its numbered claims link back to those results. Search, related coverage, trends, and findings remain local or static and usable when the optional service is unavailable or over budget.</div>
+          <div class="notice"><strong>Hosted cited analysis.</strong> “Ask the archive” sends at most ten locally retrieved BBC evidence rows to a lightweight Cloudflare Worker for bounded DeepSeek synthesis. Visitors can choose Fast, Reasoned, or Deep analysis; the latter two enable DeepSeek thinking with a bounded token allowance. Private reasoning is neither stored nor displayed—only the final cited answer is returned. Search, related coverage, trends, and findings remain local or static and usable when the optional service is unavailable or over budget.</div>
         </section>
 
         <section id="limitations">

@@ -3,7 +3,7 @@ import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout
-  title="Explore stories — BBC News Surface Lab"
+  title="Explore stories — BBC News Analyser"
   description="Search story histories and compare BBC News front-page and Most Read appearances."
   current="explore"
 >
@@ -11,9 +11,9 @@ import Layout from "../layouts/Layout.astro";
     <header class="page-intro">
       <div>
         <p class="eyebrow">Story-level explorer</p>
-        <h1>Trace a story across both surfaces.</h1>
+        <h1>Browse the evidence, without the endless scroll.</h1>
       </div>
-      <p>Search title text, narrow by observed surface, and select a story to inspect its rank history. All times are UTC.</p>
+      <p>Search title text, narrow by observed surface, and inspect fifteen stories at a time. Select one for its rank history, semantic summary, and related coverage. All times are UTC.</p>
     </header>
 
     <form class="toolbar" id="filters" role="search">
@@ -39,14 +39,25 @@ import Layout from "../layouts/Layout.astro";
       </div>
     </form>
 
-    <div class="explorer">
-      <div class="table-wrap">
-        <table>
-          <caption class="sr-only">Stories matching the selected filters</caption>
-          <thead><tr><th>Story</th><th>Surface</th><th>Best</th><th>Last seen</th></tr></thead>
-          <tbody id="story-rows"><tr><td class="loading" colspan="4">Loading story mart…</td></tr></tbody>
-        </table>
-      </div>
+    <div class="explorer" id="story-explorer">
+      <section class="story-list" aria-labelledby="story-list-heading">
+        <div class="table-meta">
+          <div><p class="eyebrow">Matching stories</p><h2 id="story-list-heading">Archive index</h2></div>
+          <p id="result-summary" aria-live="polite">Loading story mart…</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption class="sr-only">Stories matching the selected filters</caption>
+            <thead><tr><th>Story</th><th>Surface</th><th>Best</th><th>Last seen</th></tr></thead>
+            <tbody id="story-rows"><tr><td class="loading" colspan="4">Loading story mart…</td></tr></tbody>
+          </table>
+        </div>
+        <nav class="pagination" aria-label="Story result pages">
+          <button class="button secondary" id="previous-page" type="button">← Previous</button>
+          <span id="page-status">Page —</span>
+          <button class="button secondary" id="next-page" type="button">Next →</button>
+        </nav>
+      </section>
       <aside class="detail" id="story-detail" aria-live="polite">
         <p class="eyebrow">Selected story</p>
         <h2>Choose a row to inspect its history.</h2>
@@ -99,6 +110,8 @@ import Layout from "../layouts/Layout.astro";
     let selectedId: string | null = null;
     let semanticIndexReady = false;
     let relatedRequestId = 0;
+    let currentPage = 0;
+    const pageSize = 15;
 
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
@@ -135,12 +148,22 @@ import Layout from "../layouts/Layout.astro";
         if (order === "rank") return a.best_position - b.best_position;
         return String(b.last_seen).localeCompare(String(a.last_seen));
       });
-      return filtered.slice(0, 250);
+      return filtered;
     }
 
     function renderRows() {
       const tbody = element("#story-rows");
-      const rows = visibleStories();
+      const filtered = visibleStories();
+      const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+      currentPage = Math.min(currentPage, pageCount - 1);
+      const first = currentPage * pageSize;
+      const rows = filtered.slice(first, first + pageSize);
+      element("#result-summary").textContent = filtered.length ? `${(first + 1).toLocaleString("en-GB")}–${Math.min(first + pageSize, filtered.length).toLocaleString("en-GB")} of ${filtered.length.toLocaleString("en-GB")} stories` : "No matching stories";
+      element("#page-status").textContent = `Page ${(currentPage + 1).toLocaleString("en-GB")} of ${pageCount.toLocaleString("en-GB")}`;
+      const previous = document.querySelector<HTMLButtonElement>("#previous-page");
+      const next = document.querySelector<HTMLButtonElement>("#next-page");
+      if (previous) previous.disabled = currentPage === 0;
+      if (next) next.disabled = currentPage >= pageCount - 1 || !filtered.length;
       tbody.innerHTML = rows.length ? rows.map((story) => `
         <tr data-id="${story.story_id}" aria-selected="${story.story_id === selectedId}">
           <td><button type="button" data-id="${story.story_id}">${escape(story.title)}</button><span class="muted">${story.observation_count.toLocaleString("en-GB")} observations</span></td>
@@ -224,7 +247,13 @@ import Layout from "../layouts/Layout.astro";
       }
     });
 
-    element("#filters").addEventListener("input", renderRows);
+    element("#filters").addEventListener("input", () => { currentPage = 0; renderRows(); });
+    element("#previous-page").addEventListener("click", () => {
+      if (currentPage > 0) { currentPage -= 1; renderRows(); element("#story-list-heading").scrollIntoView(); }
+    });
+    element("#next-page").addEventListener("click", () => {
+      if ((currentPage + 1) * pageSize < visibleStories().length) { currentPage += 1; renderRows(); element("#story-list-heading").scrollIntoView(); }
+    });
     Promise.all([
       fetch(`${base}data/stories.json`).then((response) => response.json()),
       fetch(`${base}data/rank-series.json`).then((response) => response.json()),
