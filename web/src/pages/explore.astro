@@ -204,7 +204,7 @@ import Layout from "../layouts/Layout.astro";
         : `<li class="related-pending">${semanticIndexReady ? "No related embedded stories were found." : "Loading the semantic index…"}</li>`;
       element("#story-detail").innerHTML = `
         <p class="eyebrow">Selected story</p>
-        <h2>${escape(story.title)}</h2>
+        <h2><a href="${escape(story.url)}" target="_blank" rel="noreferrer">${escape(story.title)} <span class="sr-only">(opens BBC article)</span></a></h2>
         <p>${story.observation_count.toLocaleString("en-GB")} position-level observations across ${story.surfaces.length} surface${story.surfaces.length === 1 ? "" : "s"}.</p>
         <dl>
           <div><dt>First seen</dt><dd>${dateTime.format(new Date(story.first_seen))}</dd></div>
@@ -215,8 +215,7 @@ import Layout from "../layouts/Layout.astro";
         ${summary}
         ${tags}
         ${sparkline(points)}
-        <section class="related-coverage" aria-labelledby="related-heading"><div class="related-heading"><div><p class="eyebrow">Powered by embeddings</p><h3 id="related-heading">Related coverage</h3></div><span>${semanticIndexReady ? "Index loaded" : "Index loading"}</span></div><ol>${relatedRows}</ol></section>
-        <a class="button" href="${escape(story.url)}" target="_blank" rel="noreferrer">Open BBC article <span aria-hidden="true">↗</span></a>`;
+        <section class="related-coverage" aria-labelledby="related-heading"><div class="related-heading"><div><p class="eyebrow">Powered by embeddings</p><h3 id="related-heading">Related coverage</h3></div><span>${semanticIndexReady ? "Index loaded" : "Index loading"}</span></div><ol>${relatedRows}</ol></section>`;
     }
 
     function selectStory(id: string) {
