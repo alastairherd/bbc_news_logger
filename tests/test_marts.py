@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pyarrow as pa
 
-from bbc_news_logger.marts import build_marts
+from bbc_news_logger.marts import _semantic_findings, build_marts
 from bbc_news_logger.models import Observation
 from bbc_news_logger.semantics import (
     EMBEDDING_DIMENSIONS,
@@ -125,3 +125,40 @@ def test_build_marts_quantizes_aligned_browser_search_index(tmp_path) -> None:
     assert metadata["documents"][0]["story_id"] == observation.story_id
     assert metadata["documents"][0]["summary"] == signal["summary"]
     assert len((tmp_path / "semantic-vectors.i8").read_bytes()) == EMBEDDING_DIMENSIONS
+
+
+def test_findings_surface_the_most_substantial_recurring_stories() -> None:
+    fetched = datetime(2026, 7, 12, 10, tzinfo=timezone.utc)
+    recurring = [
+        {
+            "cluster_id": "recent-small",
+            "label": "Recent two-article event",
+            "event_type": "other",
+            "themes": [],
+            "first_seen": fetched.isoformat(),
+            "last_seen": fetched.isoformat(),
+            "article_count": 2,
+            "version_count": 2,
+            "articles": [],
+        },
+        {
+            "cluster_id": "older-large",
+            "label": "Persistent event",
+            "event_type": "other",
+            "themes": [],
+            "first_seen": (fetched - timedelta(days=10)).isoformat(),
+            "last_seen": (fetched - timedelta(days=1)).isoformat(),
+            "article_count": 8,
+            "version_count": 12,
+            "articles": [],
+        },
+    ]
+
+    findings = _semantic_findings(
+        {"hash": {"fetched_at": fetched, "story_id": "story"}},
+        {"hash": {"themes": ["example"], "story_form": "update"}},
+        [],
+        recurring,
+    )
+
+    assert findings["returningStories"][0]["cluster_id"] == "older-large"

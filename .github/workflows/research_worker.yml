@@ -14,7 +14,6 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   deploy:
@@ -35,20 +34,13 @@ jobs:
         with:
           apiToken: ${{ env.CF_API_TOKEN }}
           accountId: ${{ env.CF_ACCOUNT_ID }}
+          wranglerVersion: "4.110.0"
           workingDirectory: workers/research
           command: deploy
           secrets: |
             DEEPSEEK_API_KEY
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.DEEPSEEK_API }}
-      - name: Point Pages at the deployed Worker
-        if: steps.deploy.outputs.deployment-url != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
-        run: |
-          gh variable set PUBLIC_RESEARCH_API_URL --body "${DEPLOYMENT_URL%/}/api/research"
-          gh workflow run pages.yml
       - name: Explain skipped deployment
         if: env.CF_API_TOKEN == '' || env.CF_ACCOUNT_ID == ''
         run: echo "::notice::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to deploy the tested Worker."

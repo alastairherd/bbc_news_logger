@@ -48,7 +48,9 @@ The process calculates cost from DeepSeek's returned token counters and writes a
 the next wave starts. Publishing buffers those responses into immutable 256-row Parquet shards,
 reducing Hugging Face commits while retaining per-response paid-call recovery locally.
 The budget defaults to `$1.00` and the code rejects any higher process value. Persistent dataset
-rows enforce the separate `$7.50` backfill and `$1.00` monthly ledgers.
+rows and unpublished checkpoint rows jointly enforce the separate `$7.50` backfill and `$1.00`
+monthly ledgers. If a Hub upload fails, enrichment switches to local checkpointing and reports that
+publication was deferred instead of discarding completed paid work.
 
 ## Deployment
 

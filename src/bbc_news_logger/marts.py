@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from huggingface_hub import snapshot_download
 
+from .compaction import download_patterns, parquet_files
 from .config import DEFAULT_DATASET_ID
 
 SEMANTIC_PREFIXES = (
@@ -34,12 +35,12 @@ def load_remote_observations(
         snapshot_download(
             repo_id=dataset_id,
             repo_type="dataset",
-            allow_patterns="data/observations/**/*.parquet",
+            allow_patterns=download_patterns(["data/observations"]),
             token=token,
             max_workers=8,
         )
     )
-    files = sorted((snapshot / "data" / "observations").rglob("*.parquet"))
+    files = parquet_files(snapshot, "data/observations")
     if not files:
         raise FileNotFoundError(f"No observation partitions found in {dataset_id}")
     tables = [pq.ParquetFile(path).read() for path in files]
@@ -54,18 +55,14 @@ def load_remote_mart_tables(
         snapshot_download(
             repo_id=dataset_id,
             repo_type="dataset",
-            allow_patterns=[
-                pattern
-                for prefix in SEMANTIC_PREFIXES
-                for pattern in (f"{prefix}/*.parquet", f"{prefix}/**/*.parquet")
-            ],
+            allow_patterns=download_patterns(SEMANTIC_PREFIXES),
             token=token,
             max_workers=8,
         )
     )
     tables: dict[str, pa.Table | None] = {}
     for prefix in SEMANTIC_PREFIXES:
-        files = sorted((snapshot / prefix).rglob("*.parquet"))
+        files = parquet_files(snapshot, prefix)
         tables[prefix] = (
             pa.concat_tables(
                 [pq.ParquetFile(path).read() for path in files], promote_options="default"
@@ -272,9 +269,18 @@ def _semantic_findings(
         key=lambda row: abs(float(row["differencePercentagePoints"])), reverse=True
     )
     changes.sort(key=lambda row: float(row["changePercentagePoints"]), reverse=True)
+    prominent_recurring = sorted(
+        recurring,
+        key=lambda event: (
+            int(event["article_count"]),
+            int(event["version_count"]),
+            str(event["last_seen"]),
+        ),
+        reverse=True,
+    )
     returning = [
         {key: value for key, value in event.items() if key != "articles"}
-        for event in recurring[:8]
+        for event in prominent_recurring[:8]
     ]
     return {
         "window": {

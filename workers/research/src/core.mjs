@@ -1,6 +1,6 @@
 const MODEL = "deepseek-v4-flash";
 const MAX_EVIDENCE = 10;
-const MAX_OUTPUT_TOKENS = 900;
+const OUTPUT_TOKENS = { off: 900, high: 2500, max: 5000 };
 const INPUT_CACHE_HIT_PRICE = 0.0028;
 const INPUT_CACHE_MISS_PRICE = 0.14;
 const OUTPUT_PRICE = 0.28;
@@ -57,24 +57,28 @@ export function normalizeRequest(body) {
     });
   }
   if (!evidence.length) throw new InputError("No valid BBC evidence was supplied.");
-  return { query, evidence };
+  const reasoning = ["off", "high", "max"].includes(body?.reasoning) ? body.reasoning : "off";
+  return { query, evidence, reasoning };
 }
 
-export function deepSeekRequest(query, evidence) {
-  return {
+export function deepSeekRequest(query, evidence, reasoning = "off") {
+  const depth = ["off", "high", "max"].includes(reasoning) ? reasoning : "off";
+  const request = {
     model: MODEL,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: JSON.stringify({ question: query, evidence }) },
     ],
     response_format: { type: "json_object" },
-    thinking: { type: "disabled" },
-    max_tokens: MAX_OUTPUT_TOKENS,
+    thinking: { type: depth === "off" ? "disabled" : "enabled" },
+    max_tokens: OUTPUT_TOKENS[depth],
     stream: false,
   };
+  if (depth !== "off") request.reasoning_effort = depth;
+  return request;
 }
 
-export function parseCompletion(payload, evidenceCount) {
+export function parseCompletion(payload, evidenceCount, reasoning = "off") {
   let content;
   try {
     content = JSON.parse(String(payload?.choices?.[0]?.message?.content ?? "{}"));
@@ -103,6 +107,7 @@ export function parseCompletion(payload, evidenceCount) {
     findings,
     limitations: compact(content?.limitations, 1500),
     model: MODEL,
+    reasoning,
     usage: {
       promptTokens,
       completionTokens,

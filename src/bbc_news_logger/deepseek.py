@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -14,7 +15,7 @@ DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 MAX_RUN_BUDGET_USD = Decimal("1.00")
 MAX_INPUT_BYTES = 32_000
-MAX_OUTPUT_TOKENS = 256
+MAX_OUTPUT_TOKENS = 320
 MAX_BATCH_SIZE = 8
 REQUEST_OVERHEAD_TOKEN_ALLOWANCE = 1_024
 PROMPT_VERSION = "2026-07-13-v1"
@@ -32,16 +33,28 @@ ALLOWED_TOPICS = {
     "science_and_environment",
     "technology",
     "health",
+    "education",
     "culture",
     "sport",
     "other",
+}
+TOPIC_ALIASES = {
+    "weather": "science_and_environment",
+    "environment": "science_and_environment",
+    "science": "science_and_environment",
+    "crime": "other",
+    "uk": "other",
+    "travel": "other",
+    "transport": "other",
+    "religion": "other",
+    "lifestyle": "other",
 }
 
 SYSTEM_PROMPT = """You label BBC News articles for longitudinal news analysis.
 Return one valid JSON object and no markdown. Use only facts in the supplied article.
 The object must contain:
-- topic: one of politics, world, business, science_and_environment, technology, health, culture,
-  sport, other
+- topic: one of politics, world, business, science_and_environment, technology, health, education,
+  culture, sport, other
 - themes: 1 to 5 short, reusable thematic labels, ordered most important first
 - summary: one neutral sentence
 - named_entities: up to 8 important people, organisations, or places
@@ -58,8 +71,8 @@ BATCH_SYSTEM_PROMPT = """You label BBC News articles for longitudinal news analy
 The user supplies a JSON object containing an articles array. Return one valid JSON object with an
 articles array in the same order and no markdown. Copy each article id exactly. For each article,
 use only facts in its supplied text and include:
-- topic: one of politics, world, business, science_and_environment, technology, health, culture,
-  sport, other
+- topic: one of politics, world, business, science_and_environment, technology, health, education,
+  culture, sport, other
 - themes: 1 to 5 short reusable labels
 - summary: one neutral sentence
 - named_entities: up to 8 important people, organisations, or places
@@ -153,6 +166,30 @@ class RunBudget:
             )
 
 
+def recorded_scope_spend(rows: Sequence[dict[str, Any]], scope: str) -> Decimal:
+    """Count unique persisted requests so local checkpoints remain inside the budget ledger."""
+
+    now = datetime.now(timezone.utc)
+    total = Decimal("0")
+    seen: set[tuple[str, str, str]] = set()
+    for row in rows:
+        content_hash = str(row.get("content_sha256") or "")
+        identity = (
+            content_hash,
+            str(row.get("prompt_version") or ""),
+            str(row.get("deepseek_response_id") or ""),
+        )
+        if not content_hash or identity in seen or row.get("model") != DEEPSEEK_MODEL:
+            continue
+        generated = row.get("generated_at")
+        if scope == "monthly" and (
+            generated is None or generated.year != now.year or generated.month != now.month
+        ):
+            continue
+        seen.add(identity)
+        total += Decimal(str(row.get("request_cost_usd") or 0))
+    return total
+
 def token_cost_usd(
     *, cache_hit_input_tokens: int, cache_miss_input_tokens: int, output_tokens: int
 ) -> Decimal:
@@ -238,6 +275,7 @@ def parse_signals(content: str) -> SemanticSignals:
         raise DeepSeekError("DeepSeek returned JSON that was not an object")
 
     topic = str(value.get("topic", "")).strip().lower()
+    topic = TOPIC_ALIASES.get(topic, topic)
     if topic not in ALLOWED_TOPICS:
         raise DeepSeekError(f"DeepSeek returned an unsupported topic: {topic!r}")
     summary = str(value.get("summary", "")).strip()

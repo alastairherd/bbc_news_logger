@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -121,6 +121,8 @@ def cluster_events(
     window = timedelta(days=window_days)
     clusters: list[list[int]] = []
     story_cluster: dict[str, int] = {}
+    entity_clusters: dict[tuple[str, str], set[int]] = defaultdict(set)
+    label_token_clusters: dict[tuple[str, str], set[int]] = defaultdict(set)
     for index, content_hash in enumerate(hashes):
         article = article_rows[content_hash]
         fetched_at = article_rows[content_hash]["fetched_at"]
@@ -132,7 +134,14 @@ def cluster_events(
         current_signal = signal_rows[content_hash]
         best_cluster: int | None = None
         best_similarity = -1.0
-        for cluster_index, members in enumerate(clusters):
+        event_type = str(current_signal.get("event_type"))
+        candidates: set[int] = set()
+        for entity in _entities(current_signal):
+            candidates.update(entity_clusters[(event_type, entity)])
+        for token in _tokens(str(current_signal.get("event_label") or "")):
+            candidates.update(label_token_clusters[(event_type, token)])
+        for cluster_index in sorted(candidates):
+            members = clusters[cluster_index]
             anchor_index = members[0]
             latest_index = members[-1]
             if article_rows[hashes[latest_index]]["fetched_at"] < fetched_at - window:
@@ -151,6 +160,10 @@ def cluster_events(
         if best_cluster is None:
             best_cluster = len(clusters)
             clusters.append([index])
+            for entity in _entities(current_signal):
+                entity_clusters[(event_type, entity)].add(best_cluster)
+            for token in _tokens(str(current_signal.get("event_label") or "")):
+                label_token_clusters[(event_type, token)].add(best_cluster)
         else:
             clusters[best_cluster].append(index)
         story_cluster[story_id] = best_cluster
