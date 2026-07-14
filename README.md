@@ -69,6 +69,46 @@ Append-only Parquet shards make routine updates small. A weekly compare-and-swap
 older shards into compressed base files without racing new collection writes. Dashboard and Fenic
 readers see the base and incremental layers as the same logical tables.
 
+## How we built it
+
+BBC News Analyser was built as a sequence of small, auditable systems rather than as one large
+application. Each new capability had to preserve the data already collected and remain cheap to
+run unattended.
+
+1. **Stabilise collection first.** The collector was made fail-closed, with canonical story IDs,
+   typed records, selector versions, and explicit run metadata. A broken page selector creates a
+   visible failed run instead of silently publishing an empty or partial dataset.
+2. **Treat history as a migration.** Legacy CSV, ZIP, and Parquet files were converted through a
+   reproducible migration with source and destination hashes, row counts, and documented repairs.
+   The original files remained untouched, making the new dataset auditable rather than merely
+   tidier.
+3. **Make expensive work incremental.** Article fetches, embeddings, and labels are keyed by stable
+   URLs or content hashes. Paid model responses are checkpointed before the next request, and
+   immutable output shards are published in bounded batches. A failed or timed-out run resumes from
+   completed work instead of paying for it again.
+4. **Put each job on the smallest suitable compute.** GitHub Actions handles scheduled Python and
+   model work, Hugging Face stores the versioned Parquet data, DuckDB builds browser-ready marts,
+   GitHub Pages serves the static product, and Cloudflare performs the short optional synthesis
+   request. Trend parsing and semantic comparisons run in browser workers so the interface remains
+   responsive without a permanent application server.
+5. **Ground the generative layer in evidence.** Retrieval happens before synthesis. DeepSeek sees a
+   bounded set of numbered articles, returns structured output, and must cite those sources. The
+   interface keeps retrieval results visible so a generated answer can always be checked against
+   the archive.
+
+The development process followed the same evidence-first pattern. A human set the research goals,
+interpretive limits, and cost boundaries; an AI coding agent inspected the repository and live
+outputs, implemented scoped changes, ran tests and workflows, and measured the deployed result.
+Each iteration was then reviewed against real data and real browser behaviour before the next one
+began.
+
+That measurement loop mattered. For example, profiling a frozen trends interface showed that it
+was creating 26,521 theme options and repeatedly scanning 70,685 rows on the browser thread. The
+fix was not more infrastructure: the mart was indexed in a Web Worker, the interface was limited to
+the most active signals, and interactions were measured again on the deployed site. This cycle of
+observe → constrain → implement → verify is the process behind the project as much as any single
+technology in the architecture.
+
 ## Dataset
 
 The main public dataset exposes three core configurations:
