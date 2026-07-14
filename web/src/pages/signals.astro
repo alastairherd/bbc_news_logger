@@ -116,16 +116,15 @@ import Layout from "../layouts/Layout.astro";
           <p>Counts are fetched article versions, not audience size. The computed findings above are the starting point; this chart exposes the underlying daily series.</p>
         </div>
         <form class="signals-controls" id="trend-filters" hidden>
-          <div class="field"><label for="dimension">Group by</label><select id="dimension" name="dimension"><option value="theme">Theme</option><option value="topic">Topic</option><option value="story_form">Story form</option><option value="event_type">Event type</option></select></div>
-          <div class="field"><label for="signal-value">Signal</label><select id="signal-value" name="value"><option>Loading…</option></select></div>
+          <div class="field"><label for="dimension">Group by</label><select id="dimension" name="dimension"><option value="topic">Topic</option><option value="theme">Theme</option><option value="story_form">Story form</option><option value="event_type">Event type</option></select></div>
+          <div class="field"><label for="signal-value">Most active signal</label><select id="signal-value" name="value"><option>Preparing…</option></select><small id="trend-scope">Ranked by activity in the latest 120 days.</small></div>
         </form>
       </div>
-      <div class="deferred-tool" id="trend-loader">
+      <div class="deferred-status" id="trend-loader" role="status" aria-live="polite">
         <div>
-          <strong>Open the detailed trend explorer</strong>
-          <p>This downloads the multi-megabyte daily trend mart only when you ask for it.</p>
+          <strong id="trend-stage">Waiting for the headline findings…</strong>
+          <p>Trend data will be prepared in the background next.</p>
         </div>
-        <button class="button secondary" id="load-trends" type="button">Load trends</button>
       </div>
       <figure class="trend-panel" id="trend-explorer" hidden>
         <figcaption id="trend-caption">Loading semantic trend mart…</figcaption>
@@ -139,12 +138,11 @@ import Layout from "../layouts/Layout.astro";
         <div><p class="context-label">Conservative event matching</p><h2 id="recurring-heading">Stories that return</h2><p>Every cross-article link requires embedding similarity plus compatible event labels or named entities.</p></div>
         <div class="field event-filter" id="event-filter" hidden><label for="event-query">Filter clusters</label><input id="event-query" type="search" placeholder="Search events or themes" autocomplete="off" /></div>
       </div>
-      <div class="deferred-tool" id="event-loader">
+      <div class="deferred-status" id="event-loader" role="status" aria-live="polite">
         <div>
-          <strong>Open the recurring-story explorer</strong>
-          <p>This downloads full cluster timelines only when you ask for them.</p>
+          <strong id="event-stage">Queued after trends</strong>
+          <p>Recurring-story timelines load last so the page stays responsive.</p>
         </div>
-        <button class="button secondary" id="load-events" type="button">Load recurring stories</button>
       </div>
       <div class="event-explorer" id="event-explorer" hidden>
         <div class="event-index">
@@ -163,9 +161,10 @@ import Layout from "../layouts/Layout.astro";
   </div>
 
   <script>
-    interface TrendRow { observed_date: string; dimension: string; value: string; article_count: number }
+    interface TrendSeriesRow { observed_date: string; article_count: number }
     interface EventArticle { story_id: string; title: string; url: string; fetched_at: string; best_position: number | null; surfaces: string[] }
     interface EventCluster { cluster_id: string; label: string; event_type: string; themes: string[]; first_seen: string; last_seen: string; article_count: number; version_count: number; articles: EventArticle[] }
+    interface EventSummary { cluster_id: string; label: string; event_type: string; themes: string[]; last_seen: string; article_count: number }
     interface Manifest { generatedAt: string; semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number; searchDocumentCount?: number } }
     interface ThemeChange { theme: string; recentCount: number; previousCount: number; recentShare: number; previousShare: number; changePercentagePoints: number }
     interface SurfaceDifference { theme: string; frontPageShare: number; mostReadShare: number; differencePercentagePoints: number }
@@ -185,8 +184,7 @@ Return one JSON object and no markdown, with: answer (a concise, calibrated synt
 Every substantive claim must cite at least one supplied source. Do not invent source numbers or imply that every supplied result is relevant.`;
     const number = new Intl.NumberFormat("en-GB");
     const date = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
-    let trends: TrendRow[] = [];
-    let events: EventCluster[] = [];
+    let eventRows: EventSummary[] = [];
     let selectedEvent: string | null = null;
     let semanticReady = false;
     let semanticStarted = false;
@@ -194,10 +192,15 @@ Every substantive claim must cite at least one supplied source. Do not invent so
     let askAfterSearch = false;
     let lastSearchResults: SearchResult[] = [];
     let requestId = 0;
+    let trendRequestId = 0;
     let eventPage = 0;
+    let eventTotal = 0;
     const eventPageSize = 40;
-    let trendLoad: Promise<void> | null = null;
-    let eventLoad: Promise<void> | null = null;
+    let trendReady = false;
+    let eventsReady = false;
+    let eventStageStarted = false;
+    let pendingEventId: string | null = null;
+    let eventFilterTimer = 0;
 
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
@@ -219,6 +222,46 @@ Every substantive claim must cite at least one supplied source. Do not invent so
         return semanticWorker;
       });
       return semanticWorkerLoad;
+    }
+
+    let signalsWorker: Worker | null = null;
+    let signalsWorkerLoad: Promise<Worker> | null = null;
+
+    function getSignalsWorker(): Promise<Worker> {
+      if (signalsWorker) return Promise.resolve(signalsWorker);
+      if (signalsWorkerLoad) return signalsWorkerLoad;
+      signalsWorkerLoad = import("../workers/signals-data.worker?worker").then(({ default: SignalsDataWorker }) => {
+        signalsWorker = new SignalsDataWorker();
+        signalsWorker.addEventListener("message", handleSignalsMessage);
+        return signalsWorker;
+      });
+      return signalsWorkerLoad;
+    }
+
+    function scheduleBackground(work: () => void, timeout = 800) {
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(work, { timeout });
+      } else {
+        setTimeout(work, 160);
+      }
+    }
+
+    function startTrendStage() {
+      element("#trend-stage").textContent = "Preparing daily trends in the background…";
+      void getSignalsWorker().then((worker) => worker.postMessage({
+        type: "init-trends",
+        url: new URL(`${base}data/semantic-trends.json`, location.href).href,
+      })).catch(() => showTrendError("The background trend worker could not start."));
+    }
+
+    function startEventStage() {
+      if (eventStageStarted) return;
+      eventStageStarted = true;
+      element("#event-stage").textContent = "Preparing recurring-story timelines…";
+      void getSignalsWorker().then((worker) => worker.postMessage({
+        type: "init-events",
+        url: new URL(`${base}data/recurring-events.json`, location.href).href,
+      })).catch(() => showEventError("The recurring-story worker could not start."));
     }
 
     function startSemanticSearch() {
@@ -460,80 +503,142 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       element("#surface-differences").innerHTML = findings.surfaceDifferences.length ? findings.surfaceDifferences.slice(0, 6).map((row) => `<div class="finding-row"><strong>${escape(row.theme)}</strong><span class="change ${row.differencePercentagePoints >= 0 ? "positive" : "negative"}">${row.differencePercentagePoints >= 0 ? "+" : ""}${row.differencePercentagePoints.toFixed(2)} pp</span><small>${row.differencePercentagePoints >= 0 ? "more common in Most Read" : "more common on the front page"}</small></div>`).join("") : `<p class="loading">Surface differences need more labelled stories.</p>`;
       element("#story-forms").innerHTML = findings.storyForms.length ? findings.storyForms.slice(0, 7).map((row) => `<div class="form-row"><span>${escape(label(row.storyForm))}</span><span class="form-bar"><i style="width:${Math.min(row.share, 100)}%"></i></span><strong>${row.share.toFixed(1)}%</strong></div>`).join("") : `<p class="loading">Story-form labels are not available yet.</p>`;
       element("#returning-findings").innerHTML = findings.returningStories.length ? findings.returningStories.slice(0, 5).map((event) => `<button type="button" class="finding-event" data-event-id="${escape(event.cluster_id)}"><strong>${escape(event.label)}</strong><span>${event.article_count} articles · latest ${date.format(new Date(event.last_seen))}</span></button>`).join("") : `<p class="loading">No conservative recurring-story clusters yet.</p>`;
-      element("#returning-findings").querySelectorAll<HTMLButtonElement>("button[data-event-id]").forEach((button) => button.addEventListener("click", () => { void revealEventData().then(() => { selectEvent(button.dataset.eventId ?? ""); document.querySelector("#recurring-heading")?.scrollIntoView(); }); }));
+      element("#returning-findings").querySelectorAll<HTMLButtonElement>("button[data-event-id]").forEach((button) => button.addEventListener("click", () => openEvent(button.dataset.eventId ?? "")));
     }
 
-    function valuesForDimension(dimension: string): string[] { const totals = new Map<string, number>(); trends.filter((row) => row.dimension === dimension).forEach((row) => totals.set(row.value, (totals.get(row.value) ?? 0) + row.article_count)); return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value]) => value); }
-    function syncTrendValues() { const dimension = control("#dimension").value; const select = control("#signal-value") as HTMLSelectElement; const previous = select.value; const values = valuesForDimension(dimension); select.innerHTML = values.length ? values.map((value) => `<option value="${escape(value)}">${escape(label(value))}</option>`).join("") : "<option>No data yet</option>"; if (values.includes(previous)) select.value = previous; renderTrend(); }
-    function renderTrend() {
-      const dimension = control("#dimension").value; const value = control("#signal-value").value; const rows = trends.filter((row) => row.dimension === dimension && row.value === value).slice(-120); const svg = document.querySelector<SVGElement>("#trend-chart"); if (!svg) return;
-      element("#trend-caption").textContent = rows.length ? `${label(value)} articles per day, latest ${rows.length} recorded days` : "This signal has no completed enrichment data yet.";
+    function setTrendValues(dimension: string, values: string[], available: number, limit: number) {
+      control("#dimension").value = dimension;
+      const select = control("#signal-value") as HTMLSelectElement;
+      const previous = select.value;
+      select.innerHTML = values.length ? values.map((value) => `<option value="${escape(value)}">${escape(label(value))}</option>`).join("") : "<option>No active signals</option>";
+      if (values.includes(previous)) select.value = previous;
+      element("#trend-scope").textContent = available > limit
+        ? `Showing the ${number.format(values.length)} most active of ${number.format(available)} signals in the latest 120 days.`
+        : `Ranked by activity across the latest 120 days.`;
+      if (values.length) requestTrendSeries();
+    }
+
+    function requestTrendValues() {
+      if (!trendReady || !signalsWorker) return;
+      const select = control("#signal-value") as HTMLSelectElement;
+      select.innerHTML = "<option>Preparing…</option>";
+      signalsWorker.postMessage({ type: "trend-values", dimension: control("#dimension").value });
+    }
+
+    function requestTrendSeries() {
+      if (!trendReady || !signalsWorker) return;
+      trendRequestId += 1;
+      element("#trend-caption").textContent = "Updating the daily series…";
+      signalsWorker.postMessage({
+        type: "trend-series",
+        requestId: trendRequestId,
+        dimension: control("#dimension").value,
+        value: control("#signal-value").value,
+      });
+    }
+
+    function renderTrend(rows: TrendSeriesRow[], value: string) {
+      const svg = document.querySelector<SVGElement>("#trend-chart");
+      if (!svg) return;
+      element("#trend-caption").textContent = rows.length ? `${label(value)} article versions per day, latest 120 calendar days` : "This signal has no completed enrichment data yet.";
       element("#trend-table").innerHTML = rows.length ? rows.slice(-14).reverse().map((row) => `<tr><td class="timestamp">${escape(row.observed_date)}</td><td class="rank">${row.article_count}</td></tr>`).join("") : `<tr><td colspan="2" class="loading">The backfill has not produced this trend yet.</td></tr>`;
       if (!rows.length) { svg.innerHTML = ""; return; }
       const width = 1000, height = 250, pad = { top: 18, right: 18, bottom: 34, left: 42 }; const maximum = Math.max(...rows.map((row) => row.article_count), 1); const x = (index: number) => pad.left + index / Math.max(rows.length - 1, 1) * (width - pad.left - pad.right); const y = (count: number) => pad.top + (1 - count / maximum) * (height - pad.top - pad.bottom); const grid = [0, .5, 1].map((part) => `<line x1="${pad.left}" x2="${width-pad.right}" y1="${y(maximum*part)}" y2="${y(maximum*part)}"/><text x="4" y="${y(maximum*part)+4}">${Math.round(maximum*part)}</text>`).join(""); const points = rows.map((row, index) => `${x(index)},${y(row.article_count)}`).join(" "); svg.setAttribute("viewBox", `0 0 ${width} ${height}`); svg.innerHTML = `${grid}<polyline points="${points}"/><text x="${pad.left}" y="${height-5}">${rows[0]!.observed_date}</text><text text-anchor="end" x="${width-pad.right}" y="${height-5}">${rows.at(-1)!.observed_date}</text>`;
     }
-    function visibleEvents(): EventCluster[] { const query = control("#event-query").value.trim().toLocaleLowerCase(); return events.filter((event) => !query || `${event.label} ${event.event_type} ${event.themes.join(" ")}`.toLocaleLowerCase().includes(query)); }
-    function renderEvents() {
-      const matches = visibleEvents();
-      const pageCount = Math.max(1, Math.ceil(matches.length / eventPageSize));
-      eventPage = Math.min(eventPage, pageCount - 1);
+
+    function requestEventPage() {
+      if (!eventsReady || !signalsWorker) return;
+      signalsWorker.postMessage({ type: "event-page", query: control("#event-query").value, page: eventPage, pageSize: eventPageSize });
+    }
+
+    function renderEvents(rows: EventSummary[], total: number, page: number) {
+      eventRows = rows;
+      eventTotal = total;
+      eventPage = page;
       const first = eventPage * eventPageSize;
-      const rows = matches.slice(first, first + eventPageSize);
-      element("#event-page-status").textContent = matches.length ? `${number.format(first + 1)}–${number.format(Math.min(first + eventPageSize, matches.length))} of ${number.format(matches.length)}` : "No matching recurring stories";
+      element("#event-page-status").textContent = total ? `${number.format(first + 1)}–${number.format(Math.min(first + eventPageSize, total))} of ${number.format(total)}` : "No matching recurring stories";
       const previous = document.querySelector<HTMLButtonElement>("#previous-event-page");
       const next = document.querySelector<HTMLButtonElement>("#next-event-page");
       if (previous) previous.disabled = eventPage === 0;
-      if (next) next.disabled = eventPage >= pageCount - 1 || !matches.length;
-      element("#event-list").innerHTML = rows.length ? rows.map((event) => `<button class="event-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}"><span><strong>${escape(event.label)}</strong><small>${escape(label(event.event_type))} · ${event.article_count} articles</small></span><time datetime="${escape(event.last_seen)}">${date.format(new Date(event.last_seen))}</time></button>`).join("") : `<p class="loading">Try a broader event or theme.</p>`;
+      if (next) next.disabled = (eventPage + 1) * eventPageSize >= total || !total;
+      element("#event-list").innerHTML = eventRows.length ? eventRows.map((event) => `<button class="event-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}"><span><strong>${escape(event.label)}</strong><small>${escape(label(event.event_type))} · ${event.article_count} articles</small></span><time datetime="${escape(event.last_seen)}">${date.format(new Date(event.last_seen))}</time></button>`).join("") : `<p class="loading">Try a broader event or theme.</p>`;
     }
-    function selectEvent(id: string) { const event = events.find((row) => row.cluster_id === id); if (!event) return; selectedEvent = id; const timeline = event.articles.map((article) => `<li><time datetime="${escape(article.fetched_at)}">${date.format(new Date(article.fetched_at))}</time><a href="${escape(article.url)}" target="_blank" rel="noreferrer">${escape(article.title)}</a><span>${article.surfaces.length ? article.surfaces.map((surface) => surface === "front_page" ? "front page" : "Most Read").join(" + ") : "article archive only"}${article.best_position ? ` · best #${article.best_position}` : ""}</span></li>`).join(""); element("#event-detail").innerHTML = `<p class="context-label">${escape(label(event.event_type))}</p><h3>${escape(event.label)}</h3><div class="theme-list">${event.themes.map((theme) => `<span>${escape(theme)}</span>`).join("")}</div><dl><div><dt>First article</dt><dd>${date.format(new Date(event.first_seen))}</dd></div><div><dt>Latest article</dt><dd>${date.format(new Date(event.last_seen))}</dd></div><div><dt>Articles</dt><dd>${event.article_count}</dd></div><div><dt>Versions</dt><dd>${event.version_count}</dd></div></dl><ol class="event-timeline">${timeline}</ol>`; element("#event-list").querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.id === id))); }
 
-    element("#trend-filters").addEventListener("input", (event) => event.target === control("#dimension") ? syncTrendValues() : renderTrend());
-    control("#event-query").addEventListener("input", () => { eventPage = 0; renderEvents(); });
+    function requestEventDetail(id: string) {
+      if (!id) return;
+      selectedEvent = id;
+      if (!eventsReady || !signalsWorker) { pendingEventId = id; return; }
+      pendingEventId = null;
+      signalsWorker.postMessage({ type: "event-detail", id });
+    }
+
+    function renderEventDetail(event: EventCluster) { const timeline = event.articles.map((article) => `<li><time datetime="${escape(article.fetched_at)}">${date.format(new Date(article.fetched_at))}</time><a href="${escape(article.url)}" target="_blank" rel="noreferrer">${escape(article.title)}</a><span>${article.surfaces.length ? article.surfaces.map((surface) => surface === "front_page" ? "front page" : "Most Read").join(" + ") : "article archive only"}${article.best_position ? ` · best #${article.best_position}` : ""}</span></li>`).join(""); element("#event-detail").innerHTML = `<p class="context-label">${escape(label(event.event_type))}</p><h3>${escape(event.label)}</h3><div class="theme-list">${event.themes.map((theme) => `<span>${escape(theme)}</span>`).join("")}</div><dl><div><dt>First article</dt><dd>${date.format(new Date(event.first_seen))}</dd></div><div><dt>Latest article</dt><dd>${date.format(new Date(event.last_seen))}</dd></div><div><dt>Articles</dt><dd>${event.article_count}</dd></div><div><dt>Versions</dt><dd>${event.version_count}</dd></div></dl><ol class="event-timeline">${timeline}</ol>`; element("#event-list").querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.id === event.cluster_id))); }
+
+    function openEvent(id: string) {
+      if (!id) return;
+      pendingEventId = id;
+      startEventStage();
+      requestEventDetail(id);
+      document.querySelector("#recurring-heading")?.scrollIntoView();
+    }
+
+    function showTrendError(message: string) {
+      element("#trend-stage").textContent = message;
+      element("#trend-loader").dataset.state = "error";
+      scheduleBackground(startEventStage, 500);
+    }
+
+    function showEventError(message: string) {
+      element("#event-stage").textContent = message;
+      element("#event-loader").dataset.state = "error";
+    }
+
+    function handleSignalsMessage(event: MessageEvent) {
+      const message = event.data;
+      if (message.type === "trend-status") element("#trend-stage").textContent = message.message;
+      if (message.type === "trend-ready") {
+        trendReady = true;
+        control("#dimension").value = message.dimension;
+        element("#trend-loader").hidden = true;
+        element("#trend-filters").hidden = false;
+        element("#trend-explorer").hidden = false;
+        setTrendValues(message.dimension, message.values, message.available, message.limit);
+      }
+      if (message.type === "trend-values" && message.dimension === control("#dimension").value) setTrendValues(message.dimension, message.values, message.available, message.limit);
+      if (message.type === "trend-series" && message.requestId === trendRequestId) {
+        renderTrend(message.rows, message.value);
+        scheduleBackground(startEventStage, 600);
+      }
+      if (message.type === "trend-error") showTrendError(message.message);
+      if (message.type === "event-status") element("#event-stage").textContent = message.message;
+      if (message.type === "events-ready") {
+        eventsReady = true;
+        element("#event-loader").hidden = true;
+        element("#event-filter").hidden = false;
+        element("#event-explorer").hidden = false;
+        requestEventPage();
+        if (pendingEventId) requestEventDetail(pendingEventId);
+      }
+      if (message.type === "event-page") {
+        renderEvents(message.events, message.total, message.page);
+        if (pendingEventId) requestEventDetail(pendingEventId);
+        else if (!selectedEvent && message.events.length) requestEventDetail(message.events[0].cluster_id);
+      }
+      if (message.type === "event-detail" && message.event) renderEventDetail(message.event);
+      if (message.type === "events-error") showEventError(message.message);
+    }
+
+    element("#trend-filters").addEventListener("change", (event) => event.target === control("#dimension") ? requestTrendValues() : requestTrendSeries());
+    control("#event-query").addEventListener("input", () => {
+      window.clearTimeout(eventFilterTimer);
+      eventFilterTimer = window.setTimeout(() => { eventPage = 0; requestEventPage(); }, 160);
+    });
     element("#event-list").addEventListener("click", (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
-      if (button?.dataset.id) selectEvent(button.dataset.id);
+      if (button?.dataset.id) requestEventDetail(button.dataset.id);
     });
-    element("#previous-event-page").addEventListener("click", () => { if (eventPage > 0) { eventPage -= 1; renderEvents(); } });
-    element("#next-event-page").addEventListener("click", () => { if ((eventPage + 1) * eventPageSize < visibleEvents().length) { eventPage += 1; renderEvents(); } });
-    function loadTrendData(): Promise<void> {
-      if (trendLoad) return trendLoad;
-      trendLoad = fetch(`${base}data/semantic-trends.json`).then((response) => {
-        if (!response.ok) throw new Error("Trend mart unavailable");
-        return response.json();
-      }).then((rows: TrendRow[]) => { trends = rows; syncTrendValues(); renderTrend(); }).catch(() => {
-        element("#trend-caption").textContent = "Semantic trend data is temporarily unavailable.";
-        element("#trend-table").innerHTML = `<tr><td colspan="2" class="loading">Trend data could not be loaded.</td></tr>`;
-      });
-      return trendLoad;
-    }
-    function loadEventData(): Promise<void> {
-      if (eventLoad) return eventLoad;
-      eventLoad = fetch(`${base}data/recurring-events.json`).then((response) => {
-        if (!response.ok) throw new Error("Recurring-story mart unavailable");
-        return response.json();
-      }).then((rows: EventCluster[]) => { events = rows; renderEvents(); if (events.length && !selectedEvent) selectEvent(events[0]!.cluster_id); }).catch(() => {
-        element("#event-page-status").textContent = "Recurring stories unavailable";
-        element("#event-list").innerHTML = `<p class="loading">Recurring-story data could not be loaded.</p>`;
-      });
-      return eventLoad;
-    }
-
-    function revealTrendData(): Promise<void> {
-      element("#trend-loader").hidden = true;
-      element("#trend-filters").hidden = false;
-      element("#trend-explorer").hidden = false;
-      return loadTrendData();
-    }
-
-    function revealEventData(): Promise<void> {
-      element("#event-loader").hidden = true;
-      element("#event-filter").hidden = false;
-      element("#event-explorer").hidden = false;
-      return loadEventData();
-    }
-    element("#load-trends").addEventListener("click", () => void revealTrendData());
-    element("#load-events").addEventListener("click", () => void revealEventData());
+    element("#previous-event-page").addEventListener("click", () => { if (eventPage > 0) { eventPage -= 1; requestEventPage(); } });
+    element("#next-event-page").addEventListener("click", () => { if ((eventPage + 1) * eventPageSize < eventTotal) { eventPage += 1; requestEventPage(); } });
 
     Promise.all([
       fetch(`${base}data/manifest.json`).then((response) => response.json()),
@@ -543,6 +648,7 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       const semantic = manifest.semantics ?? { signalCount: 0, articleVersionCount: 0, coveragePercent: 0, recurringEventCount: 0 };
       element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}%`; element("#signal-count").textContent = number.format(semantic.signalCount); element("#event-count").textContent = number.format(semantic.recurringEventCount); element("#coverage-note").textContent = semantic.coveragePercent < 100 ? `Historical enrichment is in progress. ${number.format(semantic.articleVersionCount - semantic.signalCount)} article versions remain.` : "All currently archived article versions have structured signals.";
       const query = new URLSearchParams(location.search).get("q"); if (query) { control("#semantic-query").value = query; element("#search-summary").textContent = "The linked question is ready. Choose Ask the archive or Find sources only to run semantic search."; }
+      scheduleBackground(startTrendStage, 500);
     }).catch(() => { element("#coverage").textContent = "Unavailable"; element("#coverage-note").textContent = "The static semantic marts could not be loaded."; });
   </script>
 </Layout>
