@@ -79,6 +79,14 @@ def _embedding(content_hash: str, axis: int, generated_at: datetime) -> dict[str
     }
 
 
+def _embedding_vector(
+    content_hash: str, first: float, second: float, generated_at: datetime
+) -> dict[str, object]:
+    row = _embedding(content_hash, 0, generated_at)
+    row["embedding"] = [first, second, *([0.0] * (EMBEDDING_DIMENSIONS - 2))]
+    return row
+
+
 def test_embedding_text_is_stable_and_does_not_repeat_title() -> None:
     value = embedding_text({"title": "Headline", "article_text": "Headline. Body text"})
     assert value == "Headline\n\nBody text"
@@ -214,3 +222,37 @@ def test_clustering_joins_same_event_but_not_nearby_unrelated_story() -> None:
     result = cluster_events(articles, signals, embeddings).to_pylist()
     sizes = {row["content_sha256"]: row["cluster_size"] for row in result}
     assert sizes == {"hash-a": 2, "hash-b": 2, "hash-c": 1}
+
+
+def test_clustering_does_not_merge_a_transitive_similarity_chain() -> None:
+    start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    articles = pa.Table.from_pylist(
+        [
+            _article("hash-a", "Talks begin", start),
+            _article("hash-b", "Talks continue", start + timedelta(days=1)),
+            _article("hash-c", "Talks enter a different phase", start + timedelta(days=2)),
+        ],
+        schema=ARTICLE_SCHEMA,
+    )
+    signals = pa.Table.from_pylist(
+        [
+            _signal("hash-a", "Example peace talks", "Example State", start),
+            _signal("hash-b", "Example peace talks resume", "Example State", start),
+            _signal("hash-c", "Example peace talks update", "Example State", start),
+        ],
+        schema=SIGNAL_SCHEMA,
+    )
+    embeddings = pa.Table.from_pylist(
+        [
+            _embedding_vector("hash-a", 1.0, 0.0, start),
+            _embedding_vector("hash-b", 0.9, 0.43589, start),
+            _embedding_vector("hash-c", 0.62, 0.78460, start),
+        ],
+        schema=EMBEDDING_SCHEMA,
+    )
+
+    result = cluster_events(articles, signals, embeddings).to_pylist()
+    clusters = {row["content_sha256"]: row["cluster_id"] for row in result}
+
+    assert clusters["hash-a"] == clusters["hash-b"]
+    assert clusters["hash-c"] != clusters["hash-a"]

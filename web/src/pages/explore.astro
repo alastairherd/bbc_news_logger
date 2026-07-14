@@ -56,6 +56,8 @@ import Layout from "../layouts/Layout.astro";
   </div>
 
   <script>
+    import SemanticSearchWorker from "../workers/semantic-search.worker?worker";
+
     interface Story {
       story_id: string;
       title: string;
@@ -74,11 +76,29 @@ import Layout from "../layouts/Layout.astro";
       story_id: string;
     }
 
+    interface SemanticDocument {
+      story_id: string;
+      title: string;
+      url: string;
+      fetched_at: string;
+      surfaces: string[];
+      summary: string;
+      topic: string;
+      themes: string[];
+      story_form: string;
+      event_type: string;
+      named_entities: string[];
+    }
+
+    interface RelatedResult { document: SemanticDocument; score: number }
+
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
     let stories: Story[] = [];
     let rankSeries: RankPoint[] = [];
     let selectedId: string | null = null;
+    let semanticIndexReady = false;
+    let relatedRequestId = 0;
 
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
@@ -96,6 +116,14 @@ import Layout from "../layouts/Layout.astro";
       if (!value) throw new Error(`Missing element: ${selector}`);
       return value;
     };
+
+    const semanticWorker = new SemanticSearchWorker();
+    semanticWorker.postMessage({
+      type: "init",
+      metadataUrl: new URL(`${base}data/semantic-documents.json`, location.href).href,
+      vectorsUrl: new URL(`${base}data/semantic-vectors.i8`, location.href).href,
+      loadModel: false,
+    });
 
     function visibleStories() {
       const query = input("#query").value.trim().toLocaleLowerCase();
@@ -136,11 +164,21 @@ import Layout from "../layouts/Layout.astro";
       return `<svg class="spark" viewBox="0 0 ${width} ${height}" role="img" aria-label="Observed positions in the latest 30-day window"><line x1="${pad}" x2="${width-pad}" y1="${y(1)}" y2="${y(1)}" stroke="var(--dark-line)"/><line x1="${pad}" x2="${width-pad}" y1="${y(10)}" y2="${y(10)}" stroke="var(--dark-line)"/>${lines}</svg>`;
     }
 
-    function selectStory(id: string) {
-      selectedId = id;
-      const story = stories.find((item) => item.story_id === id);
-      if (!story) return;
-      const points = rankSeries.filter((item) => item.story_id === id);
+    function renderDetail(
+      story: Story,
+      points: RankPoint[],
+      semantic?: SemanticDocument,
+      related: RelatedResult[] = [],
+    ) {
+      const summary = semantic?.summary
+        ? `<section class="detail-section"><p class="eyebrow">DeepSeek summary</p><p>${escape(semantic.summary)}</p></section>`
+        : "";
+      const tags = semantic
+        ? `<div class="detail-tags"><span>${escape(semantic.topic.replaceAll("_", " "))}</span>${semantic.themes.slice(0, 5).map((theme) => `<span>${escape(theme)}</span>`).join("")}</div>`
+        : "";
+      const relatedRows = related.length
+        ? related.map(({ document, score }) => `<li><span class="related-score">${score.toFixed(3)}</span><div><a href="${escape(document.url)}" target="_blank" rel="noreferrer">${escape(document.title)}</a><small>${escape(String(document.fetched_at).slice(0, 10))} · ${escape(document.themes.slice(0, 2).join(" + ") || document.topic.replaceAll("_", " "))}</small></div></li>`).join("")
+        : `<li class="related-pending">${semanticIndexReady ? "No related embedded stories were found." : "Loading the semantic index…"}</li>`;
       element("#story-detail").innerHTML = `
         <p class="eyebrow">Selected story</p>
         <h2>${escape(story.title)}</h2>
@@ -151,10 +189,40 @@ import Layout from "../layouts/Layout.astro";
           <div><dt>Best position</dt><dd>#${story.best_position}</dd></div>
           <div><dt>Surfaces</dt><dd>${story.surfaces.length}</dd></div>
         </dl>
+        ${summary}
+        ${tags}
         ${sparkline(points)}
+        <section class="related-coverage" aria-labelledby="related-heading"><div class="related-heading"><div><p class="eyebrow">Powered by embeddings</p><h3 id="related-heading">Related coverage</h3></div><span>${semanticIndexReady ? "Index loaded" : "Index loading"}</span></div><ol>${relatedRows}</ol></section>
         <a class="button" href="${escape(story.url)}" target="_blank" rel="noreferrer">Open BBC article <span aria-hidden="true">↗</span></a>`;
+    }
+
+    function selectStory(id: string) {
+      selectedId = id;
+      const story = stories.find((item) => item.story_id === id);
+      if (!story) return;
+      const points = rankSeries.filter((item) => item.story_id === id);
+      renderDetail(story, points);
+      if (semanticIndexReady) {
+        relatedRequestId += 1;
+        semanticWorker.postMessage({ type: "related", storyId: id, requestId: relatedRequestId, limit: 6 });
+      }
       renderRows();
     }
+
+    semanticWorker.addEventListener("message", (event: MessageEvent) => {
+      const message = event.data;
+      if (message.type === "index-ready") {
+        semanticIndexReady = true;
+        if (selectedId) selectStory(selectedId);
+      }
+      if (message.type === "related-results" && message.requestId === relatedRequestId && message.storyId === selectedId) {
+        const story = stories.find((item) => item.story_id === selectedId);
+        if (story) renderDetail(story, rankSeries.filter((item) => item.story_id === selectedId), message.selectedDocument, message.results);
+      }
+      if (message.type === "fatal-error") {
+        semanticIndexReady = false;
+      }
+    });
 
     element("#filters").addEventListener("input", renderRows);
     Promise.all([

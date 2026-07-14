@@ -99,7 +99,11 @@ def download_dataset_tables(
         snapshot_download(
             repo_id=dataset_id,
             repo_type="dataset",
-            allow_patterns=[f"{prefix}/**/*.parquet" for prefix in prefixes],
+            allow_patterns=[
+                pattern
+                for prefix in prefixes
+                for pattern in (f"{prefix}/*.parquet", f"{prefix}/**/*.parquet")
+            ],
             token=token or os.getenv("HF_TOKEN"),
             max_workers=8,
         )

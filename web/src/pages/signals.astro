@@ -3,17 +3,17 @@ import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout
-  title="Semantic signals | BBC News Surface Lab"
-  description="Explore recurring BBC News stories and changes in themes, story forms, and event types."
+  title="Semantic search and signals | BBC News Surface Lab"
+  description="Search BBC News coverage by meaning and investigate recurring stories, themes, and editorial patterns."
   current="signals"
 >
   <div class="shell">
     <header class="page-intro signals-intro">
       <div>
         <p class="context-label">Semantic analysis</p>
-        <h1>Patterns across the news cycle.</h1>
+        <h1>Find patterns across the news cycle.</h1>
       </div>
-      <p>Article labels and similarity clusters help identify themes and continuing events. Every result links back to captured articles, and coverage is shown explicitly.</p>
+      <p>Search articles by meaning, compare editorial surfaces, and trace continuing events. Results stay evidence-linked and run locally in your browser.</p>
     </header>
 
     <section class="semantic-status" aria-label="Semantic dataset status">
@@ -23,69 +23,109 @@ import Layout from "../layouts/Layout.astro";
       <p id="coverage-note">Checking the latest mart manifest.</p>
     </section>
 
+    <section class="signals-section semantic-search-section" aria-labelledby="semantic-search-heading">
+      <div class="signals-heading">
+        <div>
+          <p class="context-label">Runs on this device</p>
+          <h2 id="semantic-search-heading">Search by meaning</h2>
+          <p>Describe an idea rather than guessing the words used in a headline. BGE Small and the archive index load automatically and are cached by your browser.</p>
+        </div>
+        <div class="model-state" id="model-state" role="status" aria-live="polite">
+          <span class="state-dot" aria-hidden="true"></span>
+          <span id="model-message">Starting semantic search…</span>
+        </div>
+      </div>
+
+      <form class="semantic-search-form" id="semantic-search-form" role="search">
+        <div class="semantic-query field">
+          <label for="semantic-query">Meaning, event, or question</label>
+          <div class="search-input-row">
+            <input id="semantic-query" type="search" placeholder="e.g. housing policy affecting renters" autocomplete="off" />
+            <button class="button" type="submit">Search archive</button>
+          </div>
+          <progress id="model-progress" max="100" value="0" aria-label="Semantic model download progress"></progress>
+        </div>
+        <div class="semantic-filters">
+          <div class="field">
+            <label for="semantic-surface">Surface</label>
+            <select id="semantic-surface"><option value="all">Both surfaces</option><option value="front_page">Front page</option><option value="most_read">Most Read</option></select>
+          </div>
+          <div class="field">
+            <label for="semantic-topic">Topic</label>
+            <select id="semantic-topic"><option value="all">All topics</option></select>
+          </div>
+          <div class="field">
+            <label for="semantic-form">Story form</label>
+            <select id="semantic-form"><option value="all">All forms</option></select>
+          </div>
+        </div>
+      </form>
+      <div class="search-summary" id="search-summary">The index and query model are loading in the background.</div>
+      <div class="semantic-results" id="semantic-results" aria-live="polite">
+        <p class="loading">Search results will appear here. Try a concept, event, or plain-language description.</p>
+      </div>
+    </section>
+
+    <section class="signals-section" aria-labelledby="findings-heading">
+      <div class="signals-heading">
+        <div>
+          <p class="context-label">Computed from labelled coverage</p>
+          <h2 id="findings-heading">What changed</h2>
+          <p id="findings-window">Comparing adjacent 14-day windows and surface-level coverage shares.</p>
+        </div>
+      </div>
+      <div class="findings-grid">
+        <article class="finding-panel"><h3>Rising themes</h3><div id="rising-themes" class="finding-list"><p class="loading">Loading findings…</p></div></article>
+        <article class="finding-panel"><h3>Surface differences</h3><div id="surface-differences" class="finding-list"><p class="loading">Loading findings…</p></div></article>
+        <article class="finding-panel"><h3>Story forms</h3><div id="story-forms" class="finding-list"><p class="loading">Loading findings…</p></div></article>
+        <article class="finding-panel"><h3>Returning stories</h3><div id="returning-findings" class="finding-list"><p class="loading">Loading findings…</p></div></article>
+      </div>
+    </section>
+
     <section class="signals-section" aria-labelledby="trend-heading">
       <div class="signals-heading">
         <div>
-          <h2 id="trend-heading">What kinds of stories are changing?</h2>
-          <p>Counts are based on fetched article versions, not audience size.</p>
+          <p class="context-label">Evidence drill-down</p>
+          <h2 id="trend-heading">Inspect a signal over time</h2>
+          <p>Counts are fetched article versions, not audience size. The computed findings above are the starting point; this chart exposes the underlying daily series.</p>
         </div>
         <form class="signals-controls" id="trend-filters">
-          <div class="field">
-            <label for="dimension">Group by</label>
-            <select id="dimension" name="dimension">
-              <option value="theme">Theme</option>
-              <option value="topic">Topic</option>
-              <option value="story_form">Story form</option>
-              <option value="event_type">Event type</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="signal-value">Signal</label>
-            <select id="signal-value" name="value"><option>Loading…</option></select>
-          </div>
+          <div class="field"><label for="dimension">Group by</label><select id="dimension" name="dimension"><option value="theme">Theme</option><option value="topic">Topic</option><option value="story_form">Story form</option><option value="event_type">Event type</option></select></div>
+          <div class="field"><label for="signal-value">Signal</label><select id="signal-value" name="value"><option>Loading…</option></select></div>
         </form>
       </div>
       <figure class="trend-panel">
         <figcaption id="trend-caption">Loading semantic trend mart…</figcaption>
         <svg id="trend-chart" class="trend-chart" role="img" aria-labelledby="trend-caption"></svg>
-        <div class="table-wrap trend-table-wrap">
-          <table>
-            <caption class="sr-only">Daily counts for the selected semantic signal</caption>
-            <thead><tr><th>Date</th><th>Articles</th></tr></thead>
-            <tbody id="trend-table"><tr><td colspan="2" class="loading">Loading trend data…</td></tr></tbody>
-          </table>
-        </div>
+        <div class="table-wrap trend-table-wrap"><table><caption class="sr-only">Daily counts for the selected semantic signal</caption><thead><tr><th>Date</th><th>Articles</th></tr></thead><tbody id="trend-table"><tr><td colspan="2" class="loading">Loading trend data…</td></tr></tbody></table></div>
       </figure>
     </section>
 
     <section class="signals-section" aria-labelledby="recurring-heading">
       <div class="signals-heading">
-        <div>
-          <h2 id="recurring-heading">Stories that return</h2>
-          <p>Clusters combine article similarity with event labels and named-entity evidence.</p>
-        </div>
-        <div class="field event-filter">
-          <label for="event-query">Filter clusters</label>
-          <input id="event-query" type="search" placeholder="Search events or themes" autocomplete="off" />
-        </div>
+        <div><p class="context-label">Conservative event matching</p><h2 id="recurring-heading">Stories that return</h2><p>Every cross-article link requires embedding similarity plus compatible event labels or named entities.</p></div>
+        <div class="field event-filter"><label for="event-query">Filter clusters</label><input id="event-query" type="search" placeholder="Search events or themes" autocomplete="off" /></div>
       </div>
       <div class="event-explorer">
-        <div class="event-list" id="event-list" aria-label="Recurring story clusters">
-          <p class="loading">Loading recurring stories…</p>
-        </div>
-        <aside class="event-detail" id="event-detail" aria-live="polite">
-          <h3>Select a recurring story</h3>
-          <p>Its article timeline and observed surface positions will appear here.</p>
-        </aside>
+        <div class="event-list" id="event-list" aria-label="Recurring story clusters"><p class="loading">Loading recurring stories…</p></div>
+        <aside class="event-detail" id="event-detail" aria-live="polite"><h3>Select a recurring story</h3><p>Its article timeline and observed surface positions will appear here.</p></aside>
       </div>
     </section>
   </div>
 
   <script>
+    import SemanticSearchWorker from "../workers/semantic-search.worker?worker";
+
     interface TrendRow { observed_date: string; dimension: string; value: string; article_count: number }
     interface EventArticle { story_id: string; title: string; url: string; fetched_at: string; best_position: number | null; surfaces: string[] }
     interface EventCluster { cluster_id: string; label: string; event_type: string; themes: string[]; first_seen: string; last_seen: string; article_count: number; version_count: number; articles: EventArticle[] }
-    interface Manifest { generatedAt: string; semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number } }
+    interface Manifest { generatedAt: string; semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number; searchDocumentCount?: number } }
+    interface ThemeChange { theme: string; recentCount: number; previousCount: number; recentShare: number; previousShare: number; changePercentagePoints: number }
+    interface SurfaceDifference { theme: string; frontPageShare: number; mostReadShare: number; differencePercentagePoints: number }
+    interface StoryFormFinding { storyForm: string; count: number; share: number }
+    interface Findings { window: null | { recentStart: string; recentEnd: string; previousStart: string; previousEnd: string; recentLabelledArticles: number; previousLabelledArticles: number }; risingThemes: ThemeChange[]; fallingThemes: ThemeChange[]; storyForms: StoryFormFinding[]; surfaceDifferences: SurfaceDifference[]; returningStories: EventCluster[] }
+    interface SearchDocument { story_id: string; title: string; url: string; fetched_at: string; surfaces: string[]; best_position: number | null; summary: string; topic: string; themes: string[]; story_form: string; event_type: string }
+    interface SearchResult { document: SearchDocument; score: number }
 
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const number = new Intl.NumberFormat("en-GB");
@@ -93,88 +133,118 @@ import Layout from "../layouts/Layout.astro";
     let trends: TrendRow[] = [];
     let events: EventCluster[] = [];
     let selectedEvent: string | null = null;
+    let semanticReady = false;
+    let pendingSearch = false;
+    let requestId = 0;
 
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
       return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
     };
-    const element = (selector: string): HTMLElement => {
-      const result = document.querySelector<HTMLElement>(selector);
-      if (!result) throw new Error(`Missing element: ${selector}`);
-      return result;
-    };
-    const control = (selector: string): HTMLInputElement | HTMLSelectElement => {
-      const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
-      if (!result) throw new Error(`Missing control: ${selector}`);
-      return result;
-    };
+    const element = (selector: string): HTMLElement => { const result = document.querySelector<HTMLElement>(selector); if (!result) throw new Error(`Missing element: ${selector}`); return result; };
+    const control = (selector: string): HTMLInputElement | HTMLSelectElement => { const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector); if (!result) throw new Error(`Missing control: ${selector}`); return result; };
+    const label = (value: string) => value.replaceAll("_", " ");
 
-    function valuesForDimension(dimension: string): string[] {
-      const totals = new Map<string, number>();
-      trends.filter((row) => row.dimension === dimension).forEach((row) => totals.set(row.value, (totals.get(row.value) ?? 0) + row.article_count));
-      return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value]) => value);
+    const semanticWorker = new SemanticSearchWorker();
+    semanticWorker.postMessage({
+      type: "init",
+      metadataUrl: new URL(`${base}data/semantic-documents.json`, location.href).href,
+      vectorsUrl: new URL(`${base}data/semantic-vectors.i8`, location.href).href,
+      loadModel: true,
+    });
+
+    function setModelState(message: string, state: "loading" | "ready" | "error" = "loading") {
+      element("#model-message").textContent = message;
+      element("#model-state").dataset.state = state;
     }
 
-    function syncTrendValues() {
-      const dimension = control("#dimension").value;
-      const select = control("#signal-value") as HTMLSelectElement;
-      const previous = select.value;
-      const values = valuesForDimension(dimension);
-      select.innerHTML = values.length ? values.map((value) => `<option value="${escape(value)}">${escape(value.replaceAll("_", " "))}</option>`).join("") : "<option>No data yet</option>";
-      if (values.includes(previous)) select.value = previous;
-      renderTrend();
+    function fillOptions(selector: string, values: string[]) {
+      const select = control(selector) as HTMLSelectElement;
+      const initial = select.options[0]?.outerHTML ?? "";
+      select.innerHTML = `${initial}${values.filter((value) => value && value !== "unlabelled").map((value) => `<option value="${escape(value)}">${escape(label(value))}</option>`).join("")}`;
     }
 
+    function submitSemanticSearch() {
+      const query = control("#semantic-query").value.trim();
+      if (!query) { control("#semantic-query").focus(); return; }
+      if (!semanticReady) {
+        pendingSearch = true;
+        element("#search-summary").textContent = "Your query is queued while the semantic model finishes loading.";
+        return;
+      }
+      pendingSearch = false;
+      requestId += 1;
+      element("#search-summary").textContent = `Searching ${number.format(Number(element("#model-state").dataset.count ?? 0))} embedded stories by meaning…`;
+      element("#semantic-results").innerHTML = `<p class="loading">Comparing your query with the archive…</p>`;
+      semanticWorker.postMessage({ type: "search", requestId, query, filters: { surface: control("#semantic-surface").value, topic: control("#semantic-topic").value, storyForm: control("#semantic-form").value } });
+      const params = new URLSearchParams(location.search); params.set("q", query); history.replaceState(null, "", `${location.pathname}?${params}`);
+    }
+
+    function renderSearchResults(results: SearchResult[], mode: string) {
+      const query = control("#semantic-query").value.trim();
+      element("#search-summary").textContent = results.length ? `${results.length} best matches for “${query}” · ${mode === "semantic" ? "semantic similarity" : "keyword fallback"}` : `No indexed stories matched “${query}” and the selected filters.`;
+      element("#semantic-results").innerHTML = results.length ? results.map(({ document, score }) => `
+        <article class="semantic-result">
+          <div class="result-score"><strong>${score.toFixed(3)}</strong><span>similarity</span></div>
+          <div class="result-copy"><div class="result-meta"><time datetime="${escape(document.fetched_at)}">${date.format(new Date(document.fetched_at))}</time><span>${escape(document.surfaces.map((surface) => surface === "front_page" ? "front page" : "Most Read").join(" + ") || "article archive")}</span><span>${escape(label(document.story_form))}</span></div><h3><a href="${escape(document.url)}" target="_blank" rel="noreferrer">${escape(document.title)}</a></h3>${document.summary ? `<p>${escape(document.summary)}</p>` : ""}<div class="result-tags"><span>${escape(label(document.topic))}</span>${document.themes.slice(0, 4).map((theme) => `<span>${escape(theme)}</span>`).join("")}</div></div>
+          <a class="evidence-link" href="${escape(document.url)}" target="_blank" rel="noreferrer">Open evidence ↗</a>
+        </article>`).join("") : `<p class="loading">Try broadening the wording or clearing a filter.</p>`;
+    }
+
+    semanticWorker.addEventListener("message", (event: MessageEvent) => {
+      const message = event.data;
+      if (message.type === "status") setModelState(message.message);
+      if (message.type === "index-ready") {
+        element("#model-state").dataset.count = String(message.count);
+        fillOptions("#semantic-topic", message.topics);
+        fillOptions("#semantic-form", message.storyForms);
+        element("#search-summary").textContent = `${number.format(message.count)} story embeddings are ready; loading the query model.`;
+      }
+      if (message.type === "model-progress") {
+        const progress = Number(message.progress ?? (message.total ? message.loaded / message.total * 100 : 0));
+        const bar = document.querySelector<HTMLProgressElement>("#model-progress"); if (bar && Number.isFinite(progress)) bar.value = Math.max(0, Math.min(100, progress));
+        setModelState(`Loading BGE Small${progress ? ` · ${Math.round(progress)}%` : ""}`);
+      }
+      if (message.type === "model-ready") {
+        semanticReady = true; setModelState("Semantic search ready", "ready");
+        const bar = document.querySelector<HTMLProgressElement>("#model-progress"); if (bar) bar.value = 100;
+        element("#search-summary").textContent = `${number.format(Number(element("#model-state").dataset.count ?? 0))} stories ready for meaning-based search.`;
+        if (pendingSearch || control("#semantic-query").value.trim()) submitSemanticSearch();
+      }
+      if (message.type === "model-error") {
+        semanticReady = true; setModelState("Semantic model unavailable · keyword fallback ready", "error");
+        element("#search-summary").textContent = "The vector index loaded, but the query model did not. Searches will use a local keyword fallback.";
+        if (pendingSearch) submitSemanticSearch();
+      }
+      if (message.type === "search-results" && message.requestId === requestId) renderSearchResults(message.results, message.mode);
+      if (message.type === "fatal-error") { setModelState("Semantic index unavailable", "error"); element("#search-summary").textContent = message.message; }
+      if (message.type === "search-error" && message.requestId === requestId) { element("#search-summary").textContent = message.message; element("#semantic-results").innerHTML = `<p class="loading">Search could not be completed.</p>`; }
+    });
+
+    element("#semantic-search-form").addEventListener("submit", (event) => { event.preventDefault(); submitSemanticSearch(); });
+    ["#semantic-surface", "#semantic-topic", "#semantic-form"].forEach((selector) => control(selector).addEventListener("change", () => { if (control("#semantic-query").value.trim()) submitSemanticSearch(); }));
+
+    function renderFindings(findings: Findings) {
+      if (findings.window) element("#findings-window").textContent = `${date.format(new Date(findings.window.recentStart))}–${date.format(new Date(findings.window.recentEnd))} compared with the previous 14 days; shares are normalised by labelled article count.`;
+      element("#rising-themes").innerHTML = findings.risingThemes.length ? findings.risingThemes.slice(0, 6).map((row, index) => `<div class="finding-row"><span class="finding-rank">${index + 1}</span><strong>${escape(row.theme)}</strong><span class="change positive">+${row.changePercentagePoints.toFixed(2)} pp</span><small>${row.recentCount} recent · ${row.previousCount} prior</small></div>`).join("") : `<p class="loading">Not enough adjacent-window data yet.</p>`;
+      element("#surface-differences").innerHTML = findings.surfaceDifferences.length ? findings.surfaceDifferences.slice(0, 6).map((row) => `<div class="finding-row"><strong>${escape(row.theme)}</strong><span class="change ${row.differencePercentagePoints >= 0 ? "positive" : "negative"}">${row.differencePercentagePoints >= 0 ? "+" : ""}${row.differencePercentagePoints.toFixed(2)} pp</span><small>${row.differencePercentagePoints >= 0 ? "more common in Most Read" : "more common on the front page"}</small></div>`).join("") : `<p class="loading">Surface differences need more labelled stories.</p>`;
+      element("#story-forms").innerHTML = findings.storyForms.length ? findings.storyForms.slice(0, 7).map((row) => `<div class="form-row"><span>${escape(label(row.storyForm))}</span><span class="form-bar"><i style="width:${Math.min(row.share, 100)}%"></i></span><strong>${row.share.toFixed(1)}%</strong></div>`).join("") : `<p class="loading">Story-form labels are not available yet.</p>`;
+      element("#returning-findings").innerHTML = findings.returningStories.length ? findings.returningStories.slice(0, 5).map((event) => `<button type="button" class="finding-event" data-event-id="${escape(event.cluster_id)}"><strong>${escape(event.label)}</strong><span>${event.article_count} articles · latest ${date.format(new Date(event.last_seen))}</span></button>`).join("") : `<p class="loading">No conservative recurring-story clusters yet.</p>`;
+      element("#returning-findings").querySelectorAll<HTMLButtonElement>("button[data-event-id]").forEach((button) => button.addEventListener("click", () => { selectEvent(button.dataset.eventId ?? ""); document.querySelector("#recurring-heading")?.scrollIntoView(); }));
+    }
+
+    function valuesForDimension(dimension: string): string[] { const totals = new Map<string, number>(); trends.filter((row) => row.dimension === dimension).forEach((row) => totals.set(row.value, (totals.get(row.value) ?? 0) + row.article_count)); return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([value]) => value); }
+    function syncTrendValues() { const dimension = control("#dimension").value; const select = control("#signal-value") as HTMLSelectElement; const previous = select.value; const values = valuesForDimension(dimension); select.innerHTML = values.length ? values.map((value) => `<option value="${escape(value)}">${escape(label(value))}</option>`).join("") : "<option>No data yet</option>"; if (values.includes(previous)) select.value = previous; renderTrend(); }
     function renderTrend() {
-      const dimension = control("#dimension").value;
-      const value = control("#signal-value").value;
-      const rows = trends.filter((row) => row.dimension === dimension && row.value === value).slice(-120);
-      const svg = document.querySelector<SVGElement>("#trend-chart");
-      if (!svg) return;
-      element("#trend-caption").textContent = rows.length ? `${value.replaceAll("_", " ")} articles per day, latest ${rows.length} recorded days` : "This signal has no completed enrichment data yet.";
+      const dimension = control("#dimension").value; const value = control("#signal-value").value; const rows = trends.filter((row) => row.dimension === dimension && row.value === value).slice(-120); const svg = document.querySelector<SVGElement>("#trend-chart"); if (!svg) return;
+      element("#trend-caption").textContent = rows.length ? `${label(value)} articles per day, latest ${rows.length} recorded days` : "This signal has no completed enrichment data yet.";
       element("#trend-table").innerHTML = rows.length ? rows.slice(-14).reverse().map((row) => `<tr><td class="timestamp">${escape(row.observed_date)}</td><td class="rank">${row.article_count}</td></tr>`).join("") : `<tr><td colspan="2" class="loading">The backfill has not produced this trend yet.</td></tr>`;
       if (!rows.length) { svg.innerHTML = ""; return; }
-      const width = 1000, height = 250, pad = { top: 18, right: 18, bottom: 34, left: 42 };
-      const maximum = Math.max(...rows.map((row) => row.article_count), 1);
-      const x = (index: number) => pad.left + index / Math.max(rows.length - 1, 1) * (width - pad.left - pad.right);
-      const y = (value: number) => pad.top + (1 - value / maximum) * (height - pad.top - pad.bottom);
-      const grid = [0, .5, 1].map((part) => `<line x1="${pad.left}" x2="${width-pad.right}" y1="${y(maximum*part)}" y2="${y(maximum*part)}"/><text x="4" y="${y(maximum*part)+4}">${Math.round(maximum*part)}</text>`).join("");
-      const points = rows.map((row, index) => `${x(index)},${y(row.article_count)}`).join(" ");
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      svg.innerHTML = `${grid}<polyline points="${points}"/><text x="${pad.left}" y="${height-5}">${rows[0]!.observed_date}</text><text text-anchor="end" x="${width-pad.right}" y="${height-5}">${rows.at(-1)!.observed_date}</text>`;
-      const params = new URLSearchParams(location.search);
-      params.set("dimension", dimension); params.set("value", value);
-      history.replaceState(null, "", `${location.pathname}?${params}`);
+      const width = 1000, height = 250, pad = { top: 18, right: 18, bottom: 34, left: 42 }; const maximum = Math.max(...rows.map((row) => row.article_count), 1); const x = (index: number) => pad.left + index / Math.max(rows.length - 1, 1) * (width - pad.left - pad.right); const y = (count: number) => pad.top + (1 - count / maximum) * (height - pad.top - pad.bottom); const grid = [0, .5, 1].map((part) => `<line x1="${pad.left}" x2="${width-pad.right}" y1="${y(maximum*part)}" y2="${y(maximum*part)}"/><text x="4" y="${y(maximum*part)+4}">${Math.round(maximum*part)}</text>`).join(""); const points = rows.map((row, index) => `${x(index)},${y(row.article_count)}`).join(" "); svg.setAttribute("viewBox", `0 0 ${width} ${height}`); svg.innerHTML = `${grid}<polyline points="${points}"/><text x="${pad.left}" y="${height-5}">${rows[0]!.observed_date}</text><text text-anchor="end" x="${width-pad.right}" y="${height-5}">${rows.at(-1)!.observed_date}</text>`;
     }
-
-    function visibleEvents(): EventCluster[] {
-      const query = control("#event-query").value.trim().toLocaleLowerCase();
-      return events.filter((event) => !query || `${event.label} ${event.event_type} ${event.themes.join(" ")}`.toLocaleLowerCase().includes(query));
-    }
-
-    function renderEvents() {
-      const rows = visibleEvents();
-      element("#event-list").innerHTML = rows.length ? rows.map((event) => `
-        <button class="event-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}">
-          <span><strong>${escape(event.label)}</strong><small>${escape(event.event_type.replaceAll("_", " "))} · ${event.article_count} articles</small></span>
-          <time datetime="${escape(event.last_seen)}">${date.format(new Date(event.last_seen))}</time>
-        </button>`).join("") : `<p class="loading">No recurring stories match this filter.</p>`;
-      element("#event-list").querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.addEventListener("click", () => selectEvent(button.dataset.id ?? "")));
-    }
-
-    function selectEvent(id: string) {
-      const event = events.find((row) => row.cluster_id === id);
-      if (!event) return;
-      selectedEvent = id;
-      const timeline = event.articles.map((article) => `
-        <li><time datetime="${escape(article.fetched_at)}">${date.format(new Date(article.fetched_at))}</time>
-        <a href="${escape(article.url)}" target="_blank" rel="noreferrer">${escape(article.title)}</a>
-        <span>${article.surfaces.length ? article.surfaces.map((surface) => surface === "front_page" ? "front page" : "Most Read").join(" + ") : "article archive only"}${article.best_position ? ` · best #${article.best_position}` : ""}</span></li>`).join("");
-      element("#event-detail").innerHTML = `<p class="context-label">${escape(event.event_type.replaceAll("_", " "))}</p><h3>${escape(event.label)}</h3><div class="theme-list">${event.themes.map((theme) => `<span>${escape(theme)}</span>`).join("")}</div><dl><div><dt>First article</dt><dd>${date.format(new Date(event.first_seen))}</dd></div><div><dt>Latest article</dt><dd>${date.format(new Date(event.last_seen))}</dd></div><div><dt>Articles</dt><dd>${event.article_count}</dd></div><div><dt>Versions</dt><dd>${event.version_count}</dd></div></dl><ol class="event-timeline">${timeline}</ol>`;
-      renderEvents();
-      const params = new URLSearchParams(location.search); params.set("event", id);
-      history.replaceState(null, "", `${location.pathname}?${params}`);
-    }
+    function visibleEvents(): EventCluster[] { const query = control("#event-query").value.trim().toLocaleLowerCase(); return events.filter((event) => !query || `${event.label} ${event.event_type} ${event.themes.join(" ")}`.toLocaleLowerCase().includes(query)); }
+    function renderEvents() { const rows = visibleEvents(); element("#event-list").innerHTML = rows.length ? rows.map((event) => `<button class="event-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}"><span><strong>${escape(event.label)}</strong><small>${escape(label(event.event_type))} · ${event.article_count} articles</small></span><time datetime="${escape(event.last_seen)}">${date.format(new Date(event.last_seen))}</time></button>`).join("") : `<p class="loading">No recurring stories match this filter.</p>`; element("#event-list").querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.addEventListener("click", () => selectEvent(button.dataset.id ?? ""))); }
+    function selectEvent(id: string) { const event = events.find((row) => row.cluster_id === id); if (!event) return; selectedEvent = id; const timeline = event.articles.map((article) => `<li><time datetime="${escape(article.fetched_at)}">${date.format(new Date(article.fetched_at))}</time><a href="${escape(article.url)}" target="_blank" rel="noreferrer">${escape(article.title)}</a><span>${article.surfaces.length ? article.surfaces.map((surface) => surface === "front_page" ? "front page" : "Most Read").join(" + ") : "article archive only"}${article.best_position ? ` · best #${article.best_position}` : ""}</span></li>`).join(""); element("#event-detail").innerHTML = `<p class="context-label">${escape(label(event.event_type))}</p><h3>${escape(event.label)}</h3><div class="theme-list">${event.themes.map((theme) => `<span>${escape(theme)}</span>`).join("")}</div><dl><div><dt>First article</dt><dd>${date.format(new Date(event.first_seen))}</dd></div><div><dt>Latest article</dt><dd>${date.format(new Date(event.last_seen))}</dd></div><div><dt>Articles</dt><dd>${event.article_count}</dd></div><div><dt>Versions</dt><dd>${event.version_count}</dd></div></dl><ol class="event-timeline">${timeline}</ol>`; renderEvents(); }
 
     element("#trend-filters").addEventListener("input", (event) => event.target === control("#dimension") ? syncTrendValues() : renderTrend());
     control("#event-query").addEventListener("input", renderEvents);
@@ -182,24 +252,13 @@ import Layout from "../layouts/Layout.astro";
       fetch(`${base}data/manifest.json`).then((response) => response.json()),
       fetch(`${base}data/semantic-trends.json`).then((response) => response.json()),
       fetch(`${base}data/recurring-events.json`).then((response) => response.json()),
-    ]).then(([manifest, trendRows, eventRows]: [Manifest, TrendRow[], EventCluster[]]) => {
-      trends = trendRows; events = eventRows;
+      fetch(`${base}data/semantic-findings.json`).then((response) => response.json()),
+    ]).then(([manifest, trendRows, eventRows, findings]: [Manifest, TrendRow[], EventCluster[], Findings]) => {
+      trends = trendRows; events = eventRows; renderFindings(findings);
       const semantic = manifest.semantics ?? { signalCount: 0, articleVersionCount: 0, coveragePercent: 0, recurringEventCount: 0 };
-      element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}%`;
-      element("#signal-count").textContent = number.format(semantic.signalCount);
-      element("#event-count").textContent = number.format(semantic.recurringEventCount);
-      element("#coverage-note").textContent = semantic.coveragePercent < 100 ? `Historical enrichment is in progress. ${number.format(semantic.articleVersionCount - semantic.signalCount)} article versions remain.` : "All currently archived article versions have structured signals.";
-      const params = new URLSearchParams(location.search);
-      const requestedDimension = params.get("dimension"); if (requestedDimension) control("#dimension").value = requestedDimension;
-      syncTrendValues();
-      const requestedValue = params.get("value"); if (requestedValue && valuesForDimension(control("#dimension").value).includes(requestedValue)) control("#signal-value").value = requestedValue;
-      renderTrend(); renderEvents();
-      const requestedEvent = params.get("event");
-      if (requestedEvent && events.some((event) => event.cluster_id === requestedEvent)) selectEvent(requestedEvent); else if (events.length) selectEvent(events[0]!.cluster_id);
-    }).catch(() => {
-      element("#coverage").textContent = "Unavailable";
-      element("#coverage-note").textContent = "The static semantic marts could not be loaded.";
-      element("#event-list").innerHTML = `<p class="loading">Recurring-story data is temporarily unavailable.</p>`;
-    });
+      element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}%`; element("#signal-count").textContent = number.format(semantic.signalCount); element("#event-count").textContent = number.format(semantic.recurringEventCount); element("#coverage-note").textContent = semantic.coveragePercent < 100 ? `Historical enrichment is in progress. ${number.format(semantic.articleVersionCount - semantic.signalCount)} article versions remain.` : "All currently archived article versions have structured signals.";
+      syncTrendValues(); renderTrend(); renderEvents(); if (events.length) selectEvent(events[0]!.cluster_id);
+      const query = new URLSearchParams(location.search).get("q"); if (query) { control("#semantic-query").value = query; pendingSearch = true; if (semanticReady) submitSemanticSearch(); }
+    }).catch(() => { element("#coverage").textContent = "Unavailable"; element("#coverage-note").textContent = "The static semantic marts could not be loaded."; element("#event-list").innerHTML = `<p class="loading">Recurring-story data is temporarily unavailable.</p>`; });
   </script>
 </Layout>

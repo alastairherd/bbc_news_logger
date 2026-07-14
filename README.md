@@ -108,9 +108,15 @@ Face repository commit quota. A hard `$1.00` process ceiling, `$7.50` historical
 `$1.00` monthly incremental ceiling limit spend. Ambiguous model failures are recorded without
 automatic paid retries; a Hub commit-rate response waits for its quota window and retries once.
 
-The resulting Signals dashboard shows theme, topic, story-form, and event-type trends plus
-recurring-story timelines. Coverage is always visible because historical enrichment can take more
-than one run.
+The resulting Signals dashboard loads BGE Small in the browser by default, searches the archive by
+meaning, and shows computed rising themes, surface skews, story-form mix, and conservative
+recurring-story timelines. Explore uses the same compact int8 vector index for related coverage.
+Coverage is always visible because historical enrichment can take more than one run.
+
+The next optional layer is a cited “ask the archive” service: Fenic would retrieve bounded evidence
+and a server-side model would synthesise an answer with links back to the archive. A Python-capable
+Hugging Face Space is a candidate runtime. It is deliberately separate from the static semantic
+search so the public site remains useful if that service is asleep, unavailable, or over budget.
 
 ## Semantic backfill
 
