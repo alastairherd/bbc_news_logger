@@ -112,6 +112,7 @@ def compact_remote_dataset(
         operations.extend(
             CommitOperationDelete(path_in_repo=prefix, is_folder=True)
             for prefix in COMPACTABLE_PREFIXES
+            if (snapshot / prefix).is_dir()
         )
         HfApi(token=token).create_commit(
             repo_id=dataset_id,
