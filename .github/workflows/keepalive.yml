@@ -1,0 +1,38 @@
+name: Keep scheduled workflows active
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Repository activity prevents GitHub's 60-day public-repository timeout.
+    - cron: "23 4 1 * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scheduled-workflow-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Record monthly maintenance activity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .github/maintenance
+          date -u '+%Y-%m-%dT%H:%M:%SZ' > .github/maintenance/last-keepalive.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/maintenance/last-keepalive.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'chore: keep scheduled workflows active'
+          git pull --rebase origin main
+          git push origin HEAD:main

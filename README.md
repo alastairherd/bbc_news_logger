@@ -197,6 +197,14 @@ uv run bbc-news compact-dataset --publish
 Actions use least-privilege permissions, locked dependencies, timeouts, concurrency controls, and
 caches. Generated data is never committed back to this repository.
 
+A monthly **Keep scheduled workflows active** workflow records a UTC timestamp in
+`.github/maintenance/last-keepalive.txt` on the first day of each month. This maintenance commit
+prevents GitHub's automatic disabling of public-repository schedules after 60 days without
+repository activity. It uses the built-in `GITHUB_TOKEN` with `contents: write`, needs no additional
+secrets, and can also be run manually. The token's commits do not trigger other push workflows.
+If branch protection later blocks direct bot pushes, this safeguard will need updating. It does
+not backfill missed observations or protect against GitHub outages or workflow failures.
+
 ## Fenic and MCP
 
 [`services/fenic`](services/fenic/) is an optional research interface over the same Hugging Face
