@@ -335,11 +335,11 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
         `<tr><th scope="row">${shortDate.format(new Date(row.observed_date))}${reduced(row.observed_date) ? " <span class=\"table-note\">reduced rate</span>" : ""}</th><td>${number.format(row.front_page_stories)}</td><td>${number.format(row.most_read_stories)}</td></tr>`).join("");
     }
 
-    const load = (name: string) => fetch(`${base}data/${name}`).then((response) => {
-      if (!response.ok) throw new Error(`${name} returned ${response.status}`);
+    const load = (path: string) => fetch(`${base}${path}`).then((response) => {
+      if (!response.ok) throw new Error(`${path} returned ${response.status}`);
       return response.json();
     });
-    Promise.all([load("manifest.json"), load("rank-series.json"), load("daily.json"), load("semantic-findings.json")])
+    Promise.all([load("data/manifest.json"), load("data/rank-series.json"), load("data/daily.json"), load("data/semantic-findings.json")])
       .then(([manifest, ranks, daily, findings]: [MartManifest, RankRow[], DayRow[], Findings]) => {
         renderStatus(manifest);
         renderCapture(ranks);

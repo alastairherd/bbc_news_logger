@@ -42,7 +42,7 @@ const signalScripts = await routeScripts(signals);
 const signalOutput = `${signals}\n${signalScripts.join("\n")}`;
 const indexOutput = `${index}\n${indexScripts.join("\n")}`;
 
-for (const mart of ["data/manifest.json", "data/daily.json"]) {
+for (const mart of ["data/manifest.json", "data/daily.json", "data/rank-series.json", "data/semantic-findings.json"]) {
   if (!indexOutput.includes(mart)) throw new Error(`index route is missing mart request: ${mart}`);
 }
 
@@ -60,4 +60,4 @@ for (const mart of [
   if (!signalOutput.includes(mart)) throw new Error(`signals route is missing mart request: ${mart}`);
 }
 
-console.log(`Verified ${pages.length} GitHub Pages routes and nine data-mart requests.`);
+console.log(`Verified ${pages.length} GitHub Pages routes and eleven data-mart requests.`);
