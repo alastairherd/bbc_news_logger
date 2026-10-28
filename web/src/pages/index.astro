@@ -1,141 +1,121 @@
 ---
 import Layout from "../layouts/Layout.astro";
-
 const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
 ---
-
 <Layout
   title="BBC News Analyser — longitudinal news prominence"
   description="Analyse how BBC News stories, themes, and recurring events move between the front page and Most Read list."
   current="overview"
 >
-  <div class="shell">
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Independent longitudinal analysis</p>
-        <h1>See how the news agenda moves.</h1>
-        <p>
-          Search years of BBC News coverage by meaning, follow recurring stories, and compare
-          what reaches the front page with what appears in Most Read.
-        </p>
-        <div class="hero-actions">
-          <a class="button" href={`${base}signals/`}>Ask the archive <span aria-hidden="true">→</span></a>
-          <a class="button secondary" href={`${base}explore/`}>Browse stories</a>
-        </div>
-      </div>
-      <aside class="hero-note">
-        <strong>Two surfaces, one timeline</strong>
-        Front page placement is used as a proxy for editorial prominence; Most Read placement
-        is used as a proxy for attention. Neither measures intent or absolute readership.
-      </aside>
+  <div class="page">
+    <section class="status-bar" aria-label="Collection status">
+      <dl>
+        <div><dt>Latest capture</dt><dd id="latest-capture">—</dd></div>
+        <div><dt>Collection</dt><dd id="collection-status" data-state="loading"><span class="status-dot" aria-hidden="true"></span><span id="collection-label">Checking</span></dd></div>
+        <div class="status-extra"><dt>Observations</dt><dd id="observation-count">—</dd></div>
+        <div class="status-extra"><dt>Stories</dt><dd id="story-count">—</dd></div>
+        <div class="status-extra"><dt>Data built</dt><dd id="generated-at">—</dd></div>
+      </dl>
     </section>
-  </div>
 
-  <section class="status-strip" aria-label="Dataset status">
-    <dl class="shell status-grid">
-      <div class="metric">
-        <dt>Observations</dt>
-        <dd id="observation-count">—</dd>
-        <small>position-level rows</small>
-      </div>
-      <div class="metric">
-        <dt>Distinct stories</dt>
-        <dd id="story-count">—</dd>
-        <small>canonical URLs</small>
-      </div>
-      <div class="metric">
-        <dt>Latest observation</dt>
-        <dd id="latest-date">—</dd>
-        <small>UTC</small>
-      </div>
-      <div class="metric">
-        <dt>Collection status</dt>
-        <dd id="collection-status">Loading</dd>
-        <small id="generated-at">checking mart manifest</small>
-      </div>
-    </dl>
-  </section>
+    <div id="load-error" class="error-panel" role="alert" hidden>
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" /><path d="M8 4.75v4M8 11v.25" /></svg>
+      <p><strong>Error:</strong> the archive data could not be loaded. Refresh the page to try again, or open the dataset on Hugging Face.</p>
+    </div>
 
-  <div class="shell">
-    <section class="section overview-findings" aria-labelledby="findings-heading">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">Latest computed findings</p>
-          <h2 id="findings-heading">What the labelled archive is showing</h2>
-        </div>
+    <section class="capture" aria-labelledby="capture-heading" aria-busy="true">
+      <div class="capture-head">
+        <h1 id="capture-heading">Latest capture</h1>
+        <p id="capture-time" class="capture-time">Loading the most recent BBC News homepage capture…</p>
+      </div>
+      <p class="capture-key">
+        <span><strong>Up</strong> or <strong>Down</strong>: position change since the previous capture</span>
+        <span><strong class="key-new">New</strong>: not on that list in the previous capture</span>
+        <span><strong class="key-also">Also in…</strong>: on both lists in this capture</span>
+        <span class="key-external">Headlines open on BBC News <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 4 12" /></svg></span>
+      </p>
+      <div class="capture-grid">
+        <section class="front-page" aria-labelledby="front-heading">
+          <h2 id="front-heading" class="rule-heading">Front page</h2>
+          <div id="front-page-stories">
+            <div class="skeleton skeleton-lead" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="skeleton skeleton-grid" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          </div>
+        </section>
+        <section class="most-read" aria-labelledby="most-read-heading">
+          <h2 id="most-read-heading" class="rule-heading">Most read</h2>
+          <div id="most-read-stories">
+            <div class="skeleton skeleton-list" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section class="changing" aria-labelledby="changing-heading">
+      <div class="section-intro">
+        <h2 id="changing-heading" class="rule-heading">What’s changing</h2>
         <p id="findings-window">Loading the latest comparable analysis window…</p>
       </div>
-      <div class="overview-insights">
-        <article class="momentum-card">
-          <div class="insight-heading">
-            <span>Theme momentum</span>
-            <a href={`${base}signals/#trend-heading`}>Inspect trends →</a>
+      <div class="changing-columns">
+        <section aria-labelledby="themes-heading">
+          <div class="column-head">
+            <h3 id="themes-heading">Rising and falling themes</h3>
+            <a href={`${base}signals/#trend-heading`}>Inspect trends</a>
           </div>
-          <div id="lead-theme" class="lead-finding"><p class="loading">Loading rising themes…</p></div>
-          <div id="theme-momentum" class="insight-list"></div>
-        </article>
-        <article class="surface-card">
-          <div class="insight-heading">
-            <span>Front page vs Most Read</span>
-            <a href={`${base}signals/#findings-heading`}>Compare surfaces →</a>
+          <div id="lead-theme"><p class="empty">Loading rising themes…</p></div>
+          <ul id="theme-momentum" class="change-list"></ul>
+        </section>
+        <section aria-labelledby="surfaces-heading">
+          <div class="column-head">
+            <h3 id="surfaces-heading">Front page vs Most Read</h3>
+            <a href={`${base}signals/#findings-heading`}>Compare surfaces</a>
           </div>
-          <p class="insight-explainer">Themes with the largest difference in their share of labelled coverage.</p>
-          <div id="surface-skews" class="insight-list"><p class="loading">Loading surface differences…</p></div>
-        </article>
-        <article class="returning-card">
-          <div class="insight-heading">
-            <span>Stories that return</span>
-            <a href={`${base}signals/#recurring-heading`}>Open timelines →</a>
+          <p class="column-note">Themes with the largest gap in their share of labelled coverage, and the list they lean towards.</p>
+          <ul id="surface-skews" class="change-list"><li class="empty">Loading surface differences…</li></ul>
+        </section>
+        <section aria-labelledby="returning-heading">
+          <div class="column-head">
+            <h3 id="returning-heading">Stories that return</h3>
+            <a href={`${base}signals/#recurring-heading`}>Open timelines</a>
           </div>
-          <p class="insight-explainer">Events matched across distinct articles using labels, entities, and embeddings.</p>
-          <div id="returning-stories" class="returning-list"><p class="loading">Loading recurring stories…</p></div>
-        </article>
+          <p class="column-note">Events matched across distinct articles using labels, entities, and embeddings.</p>
+          <ol id="returning-stories" class="return-list"><li class="empty">Loading recurring stories…</li></ol>
+        </section>
       </div>
-      <p class="findings-caveat">These are model-assisted discovery signals, not claims about BBC intent or absolute audience size. Every finding can be opened against its underlying articles.</p>
+      <p class="caveat">These are model-assisted discovery signals, not claims about BBC intent or audience size. Each finding opens against its underlying articles.</p>
     </section>
 
-    <section class="section" aria-labelledby="activity-heading">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">Daily coverage</p>
-          <h2 id="activity-heading">A comparative record</h2>
-        </div>
-        <p>
-          Unique stories observed on each surface each day. The distance between the lines hints
-          at changes in the breadth of editorial placement and reader attention.
-        </p>
+    <section class="coverage" aria-labelledby="coverage-heading">
+      <div class="section-intro">
+        <h2 id="coverage-heading" class="rule-heading">Daily coverage</h2>
+        <p>Unique stories captured on each list per day. Counts depend on how often the homepage was captured, so gaps and reduced-rate periods are marked.</p>
       </div>
-      <figure class="analysis-panel">
-        <figcaption class="analysis-meta">
-          <div>
-            <h3>Unique stories by surface</h3>
-            <p id="chart-range">Loading daily mart…</p>
-          </div>
-          <div class="legend" aria-hidden="true">
-            <span style="--legend: oklch(73% .16 50)">Front page</span>
-            <span style="--legend: oklch(72% .13 235)">Most Read</span>
-          </div>
+      <figure class="chart">
+        <figcaption>
+          <span id="chart-range">Loading daily figures…</span>
+          <span class="legend">
+            <span class="legend-front">Front page</span>
+            <span class="legend-read">Most Read</span>
+            <span class="legend-dashed">Reduced capture rate</span>
+          </span>
         </figcaption>
         <svg class="plot" id="daily-chart" role="img" aria-label="Daily unique story counts on the front page and Most Read list"></svg>
+        <details class="chart-table">
+          <summary>Show daily figures as a table</summary>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th scope="col">Date (UTC)</th><th scope="col">Front page</th><th scope="col">Most Read</th></tr></thead>
+              <tbody id="daily-table"></tbody>
+            </table>
+          </div>
+        </details>
       </figure>
     </section>
-
   </div>
-
   <script>
-    interface DayRow {
-      observed_date: string;
-      front_page_stories: number;
-      most_read_stories: number;
-    }
-
-    interface MartManifest {
-      generatedAt: string;
-      latestObservationAt: string;
-      observationCount: number;
-      storyCount: number;
-    }
-
+    interface RankRow { observed_at: string; surface: "front_page" | "most_read"; position: number; title: string; url: string; story_id: string }
+    interface DayRow { observed_date: string; front_page_stories: number; most_read_stories: number }
+    interface MartManifest { generatedAt: string; latestObservationAt: string; observationCount: number; storyCount: number }
     interface ThemeChange { theme: string; recentCount: number; previousCount: number; changePercentagePoints: number }
     interface SurfaceDifference { theme: string; differencePercentagePoints: number }
     interface ReturningStory { cluster_id: string; label: string; article_count: number; last_seen: string }
@@ -147,84 +127,241 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       returningStories: ReturningStory[];
     }
 
+    // Documented collection incidents; gaps in daily rows are detected from the data itself.
+    const REDUCED_RATE = { start: "2026-08-27", end: "2026-10-28" };
+    const DAY = 86_400_000;
+    const SURFACE_NAME = { front_page: "Front page", most_read: "Most Read" } as const;
+
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const number = new Intl.NumberFormat("en-GB");
-    const shortDate = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
-    const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
-
+    const shortDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+    const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+    const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
     const element = (selector: string): HTMLElement => {
       const value = document.querySelector<HTMLElement>(selector);
       if (!value) throw new Error(`Missing element: ${selector}`);
       return value;
     };
-
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
       return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
     };
+    const stamp = (date: Date) => `${clock.format(date)} UTC, ${shortDate.format(date)}`;
+    const chevron = (direction: "up" | "down") =>
+      `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${direction === "up" ? "M3.5 10 8 5.5l4.5 4.5" : "M3.5 6 8 10.5 12.5 6"}"/></svg>`;
+    const themeName = (theme: string) => theme.replaceAll("_", " ");
+    const LOW_SAMPLE = 200;
+    const queryLink = (theme: string) => `${base}signals/?q=${encodeURIComponent(`How has coverage of ${theme} changed?`)}`;
 
-    function queryLink(theme: string): string {
-      return `${base}signals/?q=${encodeURIComponent(`How has coverage of ${theme} changed?`)}`;
+    function tracked(first: Date, latest: Date, truncated: boolean): string {
+      // A story first seen in this capture has an unknown age, bounded only by the previous capture.
+      if (first.getTime() === latest.getTime()) return "First seen this capture";
+      const hours = (latest.getTime() - first.getTime()) / 3_600_000;
+      const span = hours < 48 ? `${Math.max(1, Math.round(hours))} hr${Math.round(hours) <= 1 ? "" : "s"}` : `${Math.floor(hours / 24)} days`;
+      return truncated ? `Tracked ${span} or more` : `Tracked ${span}`;
+    }
+
+    // BBC live pages carry a "Live" prefix that the scraper captures as part of the title.
+    function titleParts(title: string): { live: boolean; text: string } {
+      const match = title.match(/^live\s*[.:·\-–\u00a0\u00c2\s]+/i);
+      return match ? { live: true, text: title.slice(match[0].length) } : { live: false, text: title };
+    }
+
+    function renderCapture(rows: RankRow[]) {
+      const captures = [...new Set(rows.map((row) => row.observed_at))].sort();
+      const latestAt = captures.at(-1);
+      if (!latestAt) {
+        element("#front-page-stories").innerHTML = `<p class="empty">No captures are available yet. The page fills in after the next hourly collection.</p>`;
+        element("#most-read-stories").innerHTML = "";
+        return;
+      }
+      const previousAt = captures.at(-2);
+      const latest = new Date(latestAt);
+      const seriesStart = captures[0]!;
+      const firstSeen = new Map<string, string>();
+      for (const row of rows) if (!firstSeen.has(row.story_id) || row.observed_at < firstSeen.get(row.story_id)!) firstSeen.set(row.story_id, row.observed_at);
+      const previous = new Map(rows.filter((row) => row.observed_at === previousAt).map((row) => [`${row.surface}:${row.story_id}`, row.position]));
+      const current = rows.filter((row) => row.observed_at === latestAt).sort((a, b) => a.position - b.position);
+      const bySurface = (surface: RankRow["surface"]) => current.filter((row) => row.surface === surface);
+      const positionOn = new Map(current.map((row) => [`${row.surface}:${row.story_id}`, row.position]));
+
+      const meta = (row: RankRow) => {
+        const items: string[] = [];
+        const before = previous.get(`${row.surface}:${row.story_id}`);
+        if (previousAt && before === undefined) items.push(`<span class="marker-new">New</span>`);
+        else if (before !== undefined && before > row.position) items.push(`<span class="marker-move">${chevron("up")}Up ${before - row.position}</span>`);
+        else if (before !== undefined && before < row.position) items.push(`<span class="marker-move">${chevron("down")}Down ${row.position - before}</span>`);
+        const other = row.surface === "front_page" ? "most_read" : "front_page";
+        const otherPosition = positionOn.get(`${other}:${row.story_id}`);
+        if (otherPosition !== undefined) items.push(`<span class="marker-also">Also #${otherPosition} in ${SURFACE_NAME[other]}</span>`);
+        const first = firstSeen.get(row.story_id) ?? latestAt;
+        items.push(`<span>${tracked(new Date(first), latest, first === seriesStart && seriesStart !== latestAt)}</span>`);
+        return `<p class="story-meta">${items.join("")}</p>`;
+      };
+      const headline = (row: RankRow) => {
+        const { live, text } = titleParts(row.title);
+        return `<a href="${escape(row.url)}">${live ? `<span class="live-label">Live</span> ` : ""}${escape(text)}<span class="sr-only"> (opens BBC News)</span></a>`;
+      };
+
+      const front = bySurface("front_page");
+      const [lead, ...rest] = front;
+      element("#front-page-stories").innerHTML = lead
+        ? `<article class="lead-story"><p class="position" aria-label="Position 1">1</p><h3>${headline(lead)}</h3>${meta(lead)}</article>
+           <ol class="promo-grid" start="2">${rest.slice(0, 4).map((row) => `<li><p class="position" aria-hidden="true">${row.position}</p><h3>${headline(row)}</h3>${meta(row)}</li>`).join("")}</ol>
+           <ol class="promo-rows" start="6">${rest.slice(4).map((row) => `<li><p class="position" aria-hidden="true">${row.position}</p><div><h3>${headline(row)}</h3>${meta(row)}</div></li>`).join("")}</ol>
+           ${front.length < 10 ? `<p class="empty">This capture recorded ${front.length} front page ${front.length === 1 ? "story" : "stories"}.</p>` : ""}`
+        : `<p class="empty">This capture recorded no front page stories.</p>`;
+
+      const read = bySurface("most_read");
+      element("#most-read-stories").innerHTML = read.length
+        ? `<ol class="ranked">${read.map((row) => `<li><span class="rank-numeral" aria-hidden="true">${row.position}</span><div><h3>${headline(row)}</h3>${meta(row)}</div></li>`).join("")}</ol>
+           ${read.length < 10 ? `<p class="empty">This capture recorded ${read.length} Most Read ${read.length === 1 ? "story" : "stories"}.</p>` : ""}`
+        : `<p class="empty">This capture recorded no Most Read stories.</p>`;
+
+      element("#capture-time").innerHTML = `BBC News homepage at <time datetime="${escape(latestAt)}">${escape(stamp(latest))}</time>${previousAt ? `, compared with the capture at <time datetime="${escape(previousAt)}">${escape(stamp(new Date(previousAt)))}</time>` : ". There is no earlier capture to compare positions with yet"}.`;
+      element(".capture").setAttribute("aria-busy", "false");
+    }
+
+    function renderStatus(manifest: MartManifest) {
+      const latest = new Date(manifest.latestObservationAt);
+      element("#latest-capture").innerHTML = `<time datetime="${escape(manifest.latestObservationAt)}">${escape(stamp(latest))}</time>`;
+      element("#observation-count").textContent = number.format(manifest.observationCount);
+      element("#story-count").textContent = number.format(manifest.storyCount);
+      element("#generated-at").textContent = `${clock.format(new Date(manifest.generatedAt))} UTC`;
+      const hours = (Date.now() - latest.getTime()) / 3_600_000;
+      const [state, label] = hours < 2 ? ["current", "Current"] : hours < 12 ? ["delayed", `Delayed · ${Math.floor(hours)} hrs since last capture`] : ["stale", `Stale · ${Math.floor(hours)} hrs since last capture`];
+      element("#collection-status").dataset.state = state;
+      element("#collection-label").textContent = label;
     }
 
     function renderFindings(findings: Findings) {
-      if (!findings.window) return;
-      const { recentStart, recentEnd, recentLabelledArticles, previousLabelledArticles } = findings.window;
-      element("#findings-window").textContent = `${shortDate.format(new Date(recentStart))}–${shortDate.format(new Date(recentEnd))}, compared with the previous 14 days · ${number.format(recentLabelledArticles + previousLabelledArticles)} labelled article versions`;
-      const [lead, ...rising] = findings.risingThemes;
-      if (lead) {
-        element("#lead-theme").innerHTML = `<span class="lead-change">+${lead.changePercentagePoints.toFixed(2)}<small>pp</small></span><div><h3>${escape(lead.theme)}</h3><p>${number.format(lead.recentCount)} recent articles, up from ${number.format(lead.previousCount)} in the prior window.</p><a href="${queryLink(lead.theme)}">Ask about this theme →</a></div>`;
+      if (!findings.window) {
+        element("#findings-window").textContent = "More labelled coverage is needed before two comparable 14-day windows exist.";
+        element("#lead-theme").innerHTML = "";
+        element("#surface-skews").innerHTML = "";
+        element("#returning-stories").innerHTML = "";
+        return;
       }
-      const momentum = [...rising.slice(0, 3), ...findings.fallingThemes.slice(0, 2)];
-      element("#theme-momentum").innerHTML = momentum.map((row) => `<a href="${queryLink(row.theme)}"><strong>${escape(row.theme)}</strong><span class="${row.changePercentagePoints >= 0 ? "up" : "down"}">${row.changePercentagePoints >= 0 ? "+" : ""}${row.changePercentagePoints.toFixed(2)} pp</span></a>`).join("");
+      const { recentStart, recentEnd, recentLabelledArticles, previousLabelledArticles } = findings.window;
+      const labelled = recentLabelledArticles + previousLabelledArticles;
+      element("#findings-window").innerHTML = `${shortDate.format(new Date(recentStart))} to ${shortDate.format(new Date(recentEnd))}, compared with the previous 14 days. ${number.format(labelled)} labelled article versions.${labelled < LOW_SAMPLE
+        ? `<span class="sample-warning"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>Too few labelled articles for reliable comparisons. Collection gaps reduce the sample; treat these changes as provisional.</span>`
+        : ""}`;
+      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)} pp`;
+      const [top, runnerUp] = findings.risingThemes;
+      const lead = top && (!runnerUp || top.changePercentagePoints - runnerUp.changePercentagePoints >= 1) ? top : undefined;
+      const rising = lead ? findings.risingThemes.slice(1) : findings.risingThemes;
+      element("#lead-theme").innerHTML = lead
+        ? `<div class="lead-theme"><h4><a href="${queryLink(lead.theme)}">${escape(themeName(lead.theme))}</a></h4><p class="lead-change">${signed(lead.changePercentagePoints)}</p><p>${number.format(lead.recentCount)} recent articles, up from ${number.format(lead.previousCount)} in the previous window.</p></div>`
+        : top ? "" : `<p class="empty">No theme rose between the two windows.</p>`;
+      const seen = new Set(lead ? [lead.theme] : []);
+      const momentum = [...rising.slice(0, lead ? 3 : 4), ...findings.fallingThemes.slice(0, 2)]
+        .filter((row) => !seen.has(row.theme) && seen.add(row.theme));
+      element("#theme-momentum").innerHTML = momentum.map((row) =>
+        `<li><a href="${queryLink(row.theme)}">${escape(themeName(row.theme))}</a><span class="figure">${signed(row.changePercentagePoints)}</span></li>`).join("");
       element("#surface-skews").innerHTML = findings.surfaceDifferences.slice(0, 6).map((row) => {
-        const destination = row.differencePercentagePoints >= 0 ? "Most Read" : "Front page";
-        return `<a href="${queryLink(row.theme)}"><strong>${escape(row.theme)}</strong><span>${escape(destination)} · ${Math.abs(row.differencePercentagePoints).toFixed(2)} pp</span></a>`;
-      }).join("") || `<p class="loading">More labelled coverage is needed for this comparison.</p>`;
-      element("#returning-stories").innerHTML = findings.returningStories.slice(0, 4).map((story, index) => `<a href="${base}signals/#recurring-heading"><span>${String(index + 1).padStart(2, "0")}</span><strong>${escape(story.label)}</strong><small>${number.format(story.article_count)} articles · latest ${shortDate.format(new Date(story.last_seen))}</small></a>`).join("") || `<p class="loading">No conservative recurring-story clusters yet.</p>`;
+        const towards = row.differencePercentagePoints >= 0 ? "most_read" : "front_page";
+        return `<li><a href="${queryLink(row.theme)}">${escape(themeName(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(2)} pp</span></li>`;
+      }).join("") || `<li class="empty">More labelled coverage is needed for this comparison.</li>`;
+      element("#returning-stories").innerHTML = findings.returningStories.slice(0, 4).map((story, index) =>
+        `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div><a href="${base}signals/#recurring-heading">${escape(story.label)}</a><p>${number.format(story.article_count)} articles · latest ${shortDate.format(new Date(story.last_seen))}</p></div></li>`).join("")
+        || `<li class="empty">No recurring-story clusters meet the matching threshold yet.</li>`;
     }
 
     function drawChart(rows: DayRow[]) {
       const svg = document.querySelector("#daily-chart");
-      if (!(svg instanceof SVGElement) || !rows.length) return;
-      const currentUtcDay = new Date().toISOString().slice(0, 10);
-      const recent = rows.filter((row) => row.observed_date < currentUtcDay).slice(-120);
-      if (!recent.length) return;
-      const width = 1000;
-      const height = 300;
-      const pad = { top: 18, right: 16, bottom: 34, left: 44 };
+      if (!(svg instanceof SVGElement)) return;
+      const today = new Date().toISOString().slice(0, 10);
+      const complete = rows.filter((row) => row.observed_date < today);
+      if (!complete.length) {
+        element("#chart-range").textContent = "No completed UTC days have been captured yet.";
+        return;
+      }
+      const endDay = Date.parse(complete.at(-1)!.observed_date);
+      const startDay = endDay - 119 * DAY;
+      const recent = complete.filter((row) => Date.parse(row.observed_date) >= startDay);
+      // Draw at the rendered width so axis labels keep their real size on narrow screens.
+      const width = Math.max(280, Math.round(svg.getBoundingClientRect().width) || 1000);
+      const height = width < 600 ? 220 : 300;
+      const pad = { top: 16, right: 12, bottom: 30, left: 40 };
       const max = Math.max(...recent.flatMap((row) => [row.front_page_stories, row.most_read_stories]), 1);
-      const x = (index: number) => pad.left + (index / Math.max(recent.length - 1, 1)) * (width - pad.left - pad.right);
+      const x = (date: string) => pad.left + ((Date.parse(date) - startDay) / (endDay - startDay || DAY)) * (width - pad.left - pad.right);
       const y = (value: number) => pad.top + (1 - value / max) * (height - pad.top - pad.bottom);
-      const points = (key: "front_page_stories" | "most_read_stories") => recent.map((row, index) => `${x(index)},${y(row[key])}`).join(" ");
-      const grid = [0, .25, .5, .75, 1].map((part) => {
-        const value = Math.round(max * part);
-        return `<line class="grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(value)}" y2="${y(value)}"/><text x="4" y="${y(value) + 4}">${value}</text>`;
+      const reduced = (date: string) => date >= REDUCED_RATE.start && date < REDUCED_RATE.end;
+
+      // Split each series at missing days and at the edges of the reduced-rate period.
+      const segments: DayRow[][] = [];
+      for (const row of recent) {
+        const segment = segments.at(-1);
+        const last = segment?.at(-1);
+        const contiguous = !!last && Date.parse(row.observed_date) - Date.parse(last.observed_date) <= DAY;
+        if (!segment || !last || !contiguous) segments.push([row]);
+        else if (reduced(row.observed_date) !== reduced(last.observed_date)) segments.push([last, row]);
+        else segment.push(row);
+      }
+      const lines = segments.map((segment) => {
+        const dashed = reduced(segment.at(-1)!.observed_date) ? " dashed" : "";
+        const path = (key: "front_page_stories" | "most_read_stories") => segment.map((row) => `${x(row.observed_date).toFixed(1)},${y(row[key]).toFixed(1)}`).join(" ");
+        return segment.length === 1
+          ? `<circle class="front" cx="${x(segment[0]!.observed_date)}" cy="${y(segment[0]!.front_page_stories)}" r="2.5"/><circle class="read" cx="${x(segment[0]!.observed_date)}" cy="${y(segment[0]!.most_read_stories)}" r="2.5"/>`
+          : `<polyline class="front${dashed}" points="${path("front_page_stories")}"/><polyline class="read${dashed}" points="${path("most_read_stories")}"/>`;
       }).join("");
-      const start = recent[0]!.observed_date;
-      const end = recent[recent.length - 1]!.observed_date;
+
+      const gaps = recent.slice(1).flatMap((row, index) => {
+        const before = recent[index]!.observed_date;
+        if (Date.parse(row.observed_date) - Date.parse(before) <= DAY) return [];
+        const x1 = x(before);
+        const x2 = x(row.observed_date);
+        const label = x2 - x1 > 120 ? `<text class="gap-label" x="${(x1 + x2) / 2}" y="${pad.top + 14}" text-anchor="middle">No collection, ${dayMonth.format(new Date(Date.parse(before) + DAY))} to ${dayMonth.format(new Date(Date.parse(row.observed_date) - DAY))}</text>` : "";
+        return [`<rect class="gap" x="${x1}" y="${pad.top}" width="${x2 - x1}" height="${height - pad.top - pad.bottom}"/>${label}`];
+      }).join("");
+      const grid = [0, 0.25, 0.5, 0.75, 1].map((part) => {
+        const value = Math.round(max * part);
+        return `<line class="grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(value)}" y2="${y(value)}"/><text x="${pad.left - 8}" y="${y(value) + 4}" text-anchor="end">${value}</text>`;
+      }).join("");
+      const start = new Date(startDay).toISOString().slice(0, 10);
+      const end = complete.at(-1)!.observed_date;
+      const months: string[] = [];
+      for (let cursor = new Date(startDay); cursor.getTime() <= endDay; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+        if (cursor.getUTCDate() === 1) months.push(cursor.toISOString().slice(0, 10));
+      }
+      const monthName = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" });
+      const ticks = months.map((date) => `<line class="tick" x1="${x(date)}" x2="${x(date)}" y1="${height - pad.bottom}" y2="${height - pad.bottom + 5}"/><text x="${x(date)}" y="${height - 8}" text-anchor="middle">${monthName.format(new Date(date))}</text>`).join("");
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      svg.innerHTML = `${grid}<polyline class="front" points="${points("front_page_stories")}"/><polyline class="read" points="${points("most_read_stories")}"/><text x="${pad.left}" y="${height - 5}">${start}</text><text text-anchor="end" x="${width - pad.right}" y="${height - 5}">${end}</text>`;
-      element("#chart-range").textContent = `${shortDate.format(new Date(start))} – ${shortDate.format(new Date(end))} · last ${recent.length} completed UTC days`;
+      svg.setAttribute("aria-label", `Daily unique story counts, ${shortDate.format(new Date(start))} to ${shortDate.format(new Date(end))}. ${recent.length} days with captures. A table of the figures follows.`);
+      svg.innerHTML = `${gaps}${grid}${ticks}${lines}`;
+      element("#chart-range").textContent = `${shortDate.format(new Date(start))} to ${shortDate.format(new Date(end))}, completed UTC days`;
+      element("#daily-table").innerHTML = [...recent].reverse().map((row) =>
+        `<tr><th scope="row">${shortDate.format(new Date(row.observed_date))}${reduced(row.observed_date) ? " <span class=\"table-note\">reduced rate</span>" : ""}</th><td>${number.format(row.front_page_stories)}</td><td>${number.format(row.most_read_stories)}</td></tr>`).join("");
     }
 
-    Promise.all([
-      fetch(`${base}data/manifest.json`).then((response) => response.json()),
-      fetch(`${base}data/daily.json`).then((response) => response.json()),
-      fetch(`${base}data/semantic-findings.json`).then((response) => response.json()),
-    ]).then(([manifest, daily, findings]: [MartManifest, DayRow[], Findings]) => {
-      element("#observation-count").textContent = number.format(manifest.observationCount);
-      element("#story-count").textContent = number.format(manifest.storyCount);
-      const latest = new Date(manifest.latestObservationAt);
-      element("#latest-date").textContent = dateTime.format(latest);
-      const hours = (Date.now() - latest.getTime()) / 3_600_000;
-      element("#collection-status").textContent = hours < 3 ? "Current" : "Delayed";
-      element("#generated-at").textContent = `marts built ${dateTime.format(new Date(manifest.generatedAt))} UTC`;
-      drawChart(daily);
-      renderFindings(findings);
-    }).catch(() => {
-      element("#collection-status").textContent = "Unavailable";
-      element("#generated-at").textContent = "static mart could not be loaded";
+    const load = (name: string) => fetch(`${base}data/${name}`).then((response) => {
+      if (!response.ok) throw new Error(`${name} returned ${response.status}`);
+      return response.json();
     });
+    Promise.all([load("manifest.json"), load("rank-series.json"), load("daily.json"), load("semantic-findings.json")])
+      .then(([manifest, ranks, daily, findings]: [MartManifest, RankRow[], DayRow[], Findings]) => {
+        renderStatus(manifest);
+        renderCapture(ranks);
+        renderFindings(findings);
+        drawChart(daily);
+        let lastWidth = 0;
+        new ResizeObserver(([entry]) => {
+          const width = Math.round(entry?.contentRect.width ?? 0);
+          if (width && Math.abs(width - lastWidth) > 24) {
+            lastWidth = width;
+            drawChart(daily);
+          }
+        }).observe(element("#daily-chart"));
+      })
+      .catch(() => {
+        element("#load-error").hidden = false;
+        element("#collection-status").dataset.state = "error";
+        element("#collection-label").textContent = "Unavailable";
+        element("#capture-time").textContent = "The latest capture could not be loaded.";
+        element("#front-page-stories").innerHTML = "";
+        element("#most-read-stories").innerHTML = "";
+        element(".capture").setAttribute("aria-busy", "false");
+      });
   </script>
 </Layout>

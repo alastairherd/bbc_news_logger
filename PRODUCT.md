@@ -14,11 +14,11 @@ Maintain a reliable public archive of BBC News observations and expose it as a f
 
 ## Brand Personality
 
-Technical, rigorous, and calm. The interface should feel like a well-made data instrument rather than a newsroom imitation or a chat product.
+Familiar, rigorous, and calm. The interface uses the reading patterns of the BBC News website, including its red accent, so the archive feels native to the stories it studies. It remains clearly an independent research instrument, not a chat product or an official BBC page.
 
 ## Anti-references
 
-Avoid terminal overload: monospace everywhere, faux command prompts, dense unstructured logs, or controls that assume developer knowledge. Also avoid BBC brand imitation and generic SaaS metric-card layouts.
+Avoid terminal overload: monospace everywhere, faux command prompts, dense unstructured logs, or controls that assume developer knowledge. Do not use the BBC blocks logo, the BBC masthead, the Reith typeface, or full-width red header bands. Avoid generic SaaS metric-card layouts.
 
 ## Design Principles
 

@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T14:58:45+00:00",
+  "title": "Design System: BBC News Analyser",
+  "extensions": {
+    "colorMeta": {
+      "bbc-news-red": {
+        "role": "primary",
+        "displayName": "BBC News Red",
+        "canonical": "oklch(0.491 0.202 29)",
+        "hexApprox": "#B80000",
+        "cssVariable": "--red",
+        "tonalRamp": [
+          "oklch(0.15 0.089 29)",
+          "oklch(0.27 0.128 29)",
+          "oklch(0.39 0.166 29)",
+          "oklch(0.51 0.199 29)",
+          "oklch(0.63 0.160 29)",
+          "oklch(0.75 0.121 29)",
+          "oklch(0.86 0.086 29)",
+          "oklch(0.95 0.057 29)"
+        ]
+      },
+      "red-deep": {
+        "role": "primary",
+        "displayName": "Red Deep",
+        "canonical": "oklch(0.408 0.168 29)",
+        "hexApprox": "#8F0000",
+        "cssVariable": "--red-hover",
+        "tonalRamp": [
+          "oklch(0.15 0.074 29)",
+          "oklch(0.27 0.106 29)",
+          "oklch(0.39 0.138 29)",
+          "oklch(0.51 0.165 29)",
+          "oklch(0.63 0.133 29)",
+          "oklch(0.75 0.101 29)",
+          "oklch(0.86 0.071 29)",
+          "oklch(0.95 0.047 29)"
+        ]
+      },
+      "red-wash": {
+        "role": "primary",
+        "displayName": "Red Wash",
+        "canonical": "oklch(0.968 0.012 29)",
+        "hexApprox": "#FCF2F0",
+        "cssVariable": "--red-soft",
+        "tonalRamp": [
+          "oklch(0.15 0.005 29)",
+          "oklch(0.27 0.008 29)",
+          "oklch(0.39 0.010 29)",
+          "oklch(0.51 0.012 29)",
+          "oklch(0.63 0.010 29)",
+          "oklch(0.75 0.007 29)",
+          "oklch(0.86 0.005 29)",
+          "oklch(0.95 0.003 29)"
+        ]
+      },
+      "comparison-blue": {
+        "role": "secondary",
+        "displayName": "Comparison Blue",
+        "canonical": "oklch(0.526 0.143 248)",
+        "hexApprox": "#006EB8",
+        "cssVariable": "--blue",
+        "tonalRamp": [
+          "oklch(0.15 0.063 248)",
+          "oklch(0.27 0.090 248)",
+          "oklch(0.39 0.118 248)",
+          "oklch(0.51 0.141 248)",
+          "oklch(0.63 0.113 248)",
+          "oklch(0.75 0.086 248)",
+          "oklch(0.86 0.061 248)",
+          "oklch(0.95 0.040 248)"
+        ],
+        "source": "Wada blue (combinations 154, 257)"
+      },
+      "status-teal": {
+        "role": "tertiary",
+        "displayName": "Status Teal",
+        "canonical": "oklch(0.609 0.107 187)",
+        "hexApprox": "#00978E",
+        "cssVariable": "--teal",
+        "tonalRamp": [
+          "oklch(0.15 0.047 187)",
+          "oklch(0.27 0.068 187)",
+          "oklch(0.39 0.088 187)",
+          "oklch(0.51 0.105 187)",
+          "oklch(0.63 0.085 187)",
+          "oklch(0.75 0.064 187)",
+          "oklch(0.86 0.045 187)",
+          "oklch(0.95 0.030 187)"
+        ],
+        "source": "Wada benzol green (combinations 122, 266)"
+      },
+      "success-green": {
+        "role": "tertiary",
+        "displayName": "Success Green",
+        "canonical": "oklch(0.495 0.112 155)",
+        "hexApprox": "#197444",
+        "cssVariable": "--success",
+        "tonalRamp": [
+          "oklch(0.15 0.049 155)",
+          "oklch(0.27 0.071 155)",
+          "oklch(0.39 0.092 155)",
+          "oklch(0.51 0.110 155)",
+          "oklch(0.63 0.089 155)",
+          "oklch(0.75 0.067 155)",
+          "oklch(0.86 0.047 155)",
+          "oklch(0.95 0.031 155)"
+        ],
+        "source": "Wada diamine green (combination 313)"
+      },
+      "sulphur-highlight": {
+        "role": "tertiary",
+        "displayName": "Sulphur Highlight",
+        "canonical": "oklch(0.94 0.055 97)",
+        "hexApprox": "#F5ECC2",
+        "cssVariable": "--highlight",
+        "tonalRamp": [
+          "oklch(0.15 0.024 97)",
+          "oklch(0.27 0.035 97)",
+          "oklch(0.39 0.045 97)",
+          "oklch(0.51 0.054 97)",
+          "oklch(0.63 0.044 97)",
+          "oklch(0.75 0.033 97)",
+          "oklch(0.86 0.023 97)",
+          "oklch(0.95 0.015 97)"
+        ],
+        "source": "Wada sulphur yellow (combination 246)"
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(1 0 0)",
+        "hexApprox": "#FFFFFF",
+        "cssVariable": "--paper",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.27 0.000 0)",
+          "oklch(0.39 0.000 0)",
+          "oklch(0.51 0.000 0)",
+          "oklch(0.63 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.86 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "surface-grey": {
+        "role": "neutral",
+        "displayName": "Surface Grey",
+        "canonical": "oklch(0.973 0 0)",
+        "hexApprox": "#F6F6F6",
+        "cssVariable": "--surface",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.27 0.000 0)",
+          "oklch(0.39 0.000 0)",
+          "oklch(0.51 0.000 0)",
+          "oklch(0.63 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.86 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.191 0 0)",
+        "hexApprox": "#141414",
+        "cssVariable": "--ink",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.27 0.000 0)",
+          "oklch(0.39 0.000 0)",
+          "oklch(0.51 0.000 0)",
+          "oklch(0.63 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.86 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ],
+        "source": "Wada black (combination 117)"
+      },
+      "muted-ink": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "oklch(0.452 0.004 248)",
+        "hexApprox": "#545658",
+        "cssVariable": "--muted",
+        "tonalRamp": [
+          "oklch(0.15 0.002 248)",
+          "oklch(0.27 0.003 248)",
+          "oklch(0.39 0.003 248)",
+          "oklch(0.51 0.004 248)",
+          "oklch(0.63 0.003 248)",
+          "oklch(0.75 0.002 248)",
+          "oklch(0.86 0.002 248)",
+          "oklch(0.95 0.001 248)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "oklch(0.898 0 0)",
+        "hexApprox": "#DDDDDD",
+        "cssVariable": "--line",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.27 0.000 0)",
+          "oklch(0.39 0.000 0)",
+          "oklch(0.51 0.000 0)",
+          "oklch(0.63 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.86 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "rule-strong": {
+        "role": "neutral",
+        "displayName": "Rule Strong",
+        "canonical": "oklch(0.8 0 0)",
+        "hexApprox": "#BEBEBE",
+        "cssVariable": "--line-strong",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.27 0.000 0)",
+          "oklch(0.39 0.000 0)",
+          "oklch(0.51 0.000 0)",
+          "oklch(0.63 0.000 0)",
+          "oklch(0.75 0.000 0)",
+          "oklch(0.86 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Lead story headline only; 2.125rem below 1100px, 1.75rem below 760px."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page heading and the lead theme."
+      },
+      "section-title": {
+        "displayName": "Section Title",
+        "purpose": "Section headings on a 1px ink rule."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Four-up grid headlines and column headings."
+      },
+      "story": {
+        "displayName": "Story",
+        "purpose": "Compact rows and Most Read headlines."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running text, max 70ch."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Story meta, status bar, captions, keys, action links."
+      },
+      "rank-numeral": {
+        "displayName": "Rank Numeral",
+        "purpose": "Most Read ranks, red, light weight."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "The text wordmark in the masthead."
+      }
+    },
+    "shadows": [
+      {
+        "name": "nav-current-underline",
+        "value": "inset 0 -4px 0 var(--red)",
+        "purpose": "Underline for the current section; a drawn line, not elevation."
+      },
+      {
+        "name": "nav-hover-underline",
+        "value": "inset 0 -3px 0 var(--line-strong)",
+        "purpose": "Hover underline in the section nav."
+      },
+      {
+        "name": "status-ring",
+        "value": "inset 0 0 0 1.5px var(--muted)",
+        "purpose": "Hollow ring for the delayed status dot."
+      }
+    ],
+    "motion": [
+      {
+        "name": "nav-underline",
+        "value": "box-shadow 180ms ease-out",
+        "purpose": "The only transition; collapses to 0.01ms under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide",
+        "value": "1100px",
+        "note": "four-up grid becomes two-up; lead headline 2.125rem"
+      },
+      {
+        "name": "columns",
+        "value": "900px",
+        "note": "capture grid, section intros and columns collapse"
+      },
+      {
+        "name": "mobile",
+        "value": "760px",
+        "note": "gutter 16px; secondary status cells hide; rows single column"
+      },
+      {
+        "name": "narrow",
+        "value": "520px",
+        "note": "grid single column with horizontal rules"
+      }
+    ],
+    "legacy": {
+      "note": "Explore, Ask & analyse and Methodology still use pre-redesign styling; not part of this system.",
+      "tokens": [
+        "--cyan",
+        "--amber",
+        "--dark",
+        "--dark-line",
+        "--dark-muted",
+        "--blue-soft",
+        "--signal",
+        "--signal-soft",
+        "--paper-strong",
+        "--mono labels"
+      ],
+      "classes": [
+        ".eyebrow",
+        ".context-label",
+        ".button",
+        ".pill",
+        ".theme-list span",
+        ".toolbar",
+        ".detail",
+        ".research-answer",
+        ".trend-panel",
+        "8px input radius"
+      ]
+    }
+  },
+  "components": [
+    {
+      "name": "Masthead",
+      "kind": "nav",
+      "refersTo": "wordmark",
+      "description": "Text wordmark, independence note, and right-aligned Dataset link on a white bar.",
+      "html": "<header class=\"ds-masthead\"><a class=\"ds-wordmark\" href=\"#\">BBC News Analyser</a><p class=\"ds-masthead-note\">Independent archive · not affiliated with the BBC</p><a class=\"ds-masthead-link\" href=\"#\">Dataset <svg class=\"ds-icon\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M6 3h7v7M13 3 4 12\"/></svg></a></header>",
+      "css": ".ds-icon { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; } .ds-masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .375rem 1.25rem; padding: 1.125rem 0 1rem; border-bottom: 1px solid var(--line, #ddd); background: var(--paper, #fff); color: var(--ink, #141414); font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-wordmark { color: inherit; font-size: 1.5rem; font-weight: 800; letter-spacing: -.035em; line-height: 1; text-decoration: none; } .ds-masthead-note { margin: 0; color: var(--muted, #545658); font-size: .8125rem; } .ds-masthead-link { margin-left: auto; display: inline-flex; align-items: center; gap: .3rem; color: inherit; font-size: .875rem; font-weight: 600; text-decoration: none; } .ds-wordmark:hover, .ds-masthead-link:hover { text-decoration: underline; } .ds-masthead a:focus-visible { outline: 2px solid var(--red, #b80000); outline-offset: 2px; }"
+    },
+    {
+      "name": "Section Navigation",
+      "kind": "nav",
+      "refersTo": "section-nav-link",
+      "description": "Section bar with a 4px red underline on the current section and a grey hover underline.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Sections\"><a href=\"#\" aria-current=\"page\">Overview</a><a href=\"#\">Explore</a><a href=\"#\">Ask &amp; analyse</a><a href=\"#\">Methodology</a></nav>",
+      "css": ".ds-nav { display: flex; border-block: 1px solid var(--line, #ddd); background: var(--paper, #fff); font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-nav a { display: block; padding: .75rem 1rem; color: var(--ink, #141414); font-size: .9375rem; font-weight: 600; white-space: nowrap; text-decoration: none; transition: box-shadow 180ms ease-out; } .ds-nav a:first-child { padding-left: 0; } .ds-nav a:hover { box-shadow: inset 0 -3px 0 var(--line-strong, #bebebe); } .ds-nav a[aria-current=page] { box-shadow: inset 0 -4px 0 var(--red, #b80000); } .ds-nav a:focus-visible { outline: 2px solid var(--red, #b80000); outline-offset: 2px; }"
+    },
+    {
+      "name": "Lead Story",
+      "kind": "card",
+      "refersTo": "display",
+      "description": "Position, display headline with optional Live label, and story meta, closed by a rule.",
+      "html": "<article class=\"ds-lead\"><p class=\"ds-position\">1</p><h3><a href=\"#\"><span class=\"ds-live\">Live</span> Chancellor delivers first Budget</a></h3><p class=\"ds-meta\"><span class=\"ds-new\">New</span><span>First seen this capture</span></p></article>",
+      "css": ".ds-lead { padding: 1.25rem 0 1.5rem; border-bottom: 1px solid var(--line, #ddd); color: var(--ink, #141414); font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-lead h3 { margin: .25rem 0 0; font-size: 2.5rem; font-weight: 700; letter-spacing: -.025em; line-height: 1.08; text-wrap: pretty; } .ds-lead h3 a { color: inherit; text-decoration: none; } .ds-lead h3 a:hover { text-decoration: underline; text-decoration-thickness: 1px; } .ds-lead h3 a:focus-visible { outline: 2px solid var(--red, #b80000); outline-offset: 2px; } .ds-live { color: var(--red, #b80000); font-weight: 800; text-transform: uppercase; letter-spacing: .02em; } .ds-position { margin: 0; color: var(--muted, #545658); font-size: .8125rem; font-weight: 600; font-variant-numeric: tabular-nums; } .ds-meta { display: flex; flex-wrap: wrap; margin: .5rem 0 0 -.5rem; overflow: hidden; color: var(--muted, #545658); font-size: .875rem; line-height: 1.3; } .ds-meta > span { margin-left: -1px; padding-inline: .5rem; border-left: 1px solid var(--line-strong, #bebebe); } .ds-new { color: var(--red, #b80000); font-weight: 700; }"
+    },
+    {
+      "name": "Story Meta Markers",
+      "kind": "chip",
+      "refersTo": "marker-new",
+      "description": "Annotation row: New in red, movement in ink with chevron, Also in blue, context in muted, separated by short rules.",
+      "html": "<p class=\"ds-meta\"><span class=\"ds-move\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M3.5 10 8 5.5l4.5 4.5\"/></svg>Up 7</span><span class=\"ds-also\">Also #7 in Front page</span><span>Tracked 7 hrs</span></p><p class=\"ds-meta\"><span class=\"ds-new\">New</span><span>First seen this capture</span></p>",
+      "css": ".ds-icon { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; } .ds-meta { display: flex; flex-wrap: wrap; align-items: center; margin: .5rem 0 0 -.5rem; overflow: hidden; color: var(--muted, #545658); font-size: .8125rem; line-height: 1.3; font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-meta > span { display: inline-flex; align-items: center; gap: .2rem; margin-left: -1px; padding-inline: .5rem; border-left: 1px solid var(--line-strong, #bebebe); } .ds-meta .ds-icon { width: .875rem; height: .875rem; stroke-width: 2.2; } .ds-new { color: var(--red, #b80000); font-weight: 700; } .ds-move { color: var(--ink, #141414); font-weight: 600; } .ds-also { color: var(--blue, #006eb8); font-weight: 600; }"
+    },
+    {
+      "name": "Most Read Ranked List",
+      "kind": "custom",
+      "refersTo": "rank-numeral",
+      "description": "Large light red tabular numerals beside story headlines, rows separated by rules.",
+      "html": "<ol class=\"ds-ranked\"><li><span class=\"ds-rank\">1</span><div><h3><a href=\"#\">Luxury cruise passengers stranded in Cambodia</a></h3><p class=\"ds-sub\">Up 7 · Tracked 7 hrs</p></div></li><li><span class=\"ds-rank\">2</span><div><h3><a href=\"#\">Court hears allegations had devastating impact</a></h3><p class=\"ds-sub\"><b>New</b> · First seen this capture</p></div></li></ol>",
+      "css": ".ds-ranked { margin: 0; padding: 0; list-style: none; color: var(--ink, #141414); font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-ranked li { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: .5rem; padding: .875rem 0; border-bottom: 1px solid var(--line, #ddd); } .ds-rank { color: var(--red, #b80000); font-size: 2.25rem; font-weight: 300; letter-spacing: -.04em; line-height: .95; font-variant-numeric: tabular-nums; } .ds-ranked h3 { margin: 0; font-size: 1rem; font-weight: 700; letter-spacing: -.015em; line-height: 1.3; } .ds-ranked a { color: inherit; text-decoration: none; } .ds-ranked a:hover { text-decoration: underline; } .ds-ranked a:focus-visible { outline: 2px solid var(--red, #b80000); outline-offset: 2px; } .ds-sub { margin: .5rem 0 0; color: var(--muted, #545658); font-size: .8125rem; } .ds-sub b { color: var(--red, #b80000); }"
+    },
+    {
+      "name": "Section Heading with Action",
+      "kind": "custom",
+      "refersTo": "action-link",
+      "description": "Bold title on a 1px ink rule, with a red action link at the right of column heads.",
+      "html": "<div class=\"ds-section\"><h2>What’s changing</h2><div class=\"ds-colhead\"><h3>Rising and falling themes</h3><a href=\"#\">Inspect trends</a></div></div>",
+      "css": ".ds-section { color: var(--ink, #141414); font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-section h2 { margin: 0; padding-top: .5rem; border-top: 1px solid var(--ink, #141414); font-size: 1.25rem; font-weight: 700; letter-spacing: -.01em; line-height: 1.15; } .ds-colhead { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-top: 1.25rem; } .ds-colhead h3 { margin: 0; font-size: 1.0625rem; font-weight: 700; } .ds-colhead a { color: var(--red, #b80000); font-size: .8125rem; font-weight: 600; white-space: nowrap; text-decoration: none; } .ds-colhead a:hover { color: var(--red-hover, #8f0000); text-decoration: underline; } .ds-colhead a:focus-visible { outline: 2px solid var(--red, #b80000); outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Bar",
+      "kind": "custom",
+      "refersTo": "status-dot",
+      "description": "Rule-separated status cells; collection state shown by dot plus words.",
+      "html": "<dl class=\"ds-status\"><div><dt>Latest capture</dt><dd>12:42 UTC</dd></div><div><dt>Collection</dt><dd data-state=\"current\"><i></i>Current</dd></div><div><dt>Collection</dt><dd data-state=\"delayed\"><i></i>Delayed</dd></div><div><dt>Collection</dt><dd data-state=\"stale\"><i></i>Stale</dd></div></dl>",
+      "css": ".ds-status { display: flex; flex-wrap: wrap; margin: 0 0 0 -1rem; padding: .625rem 0; overflow: hidden; border-bottom: 1px solid var(--line, #ddd); color: var(--ink, #141414); font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-status > div { display: flex; align-items: baseline; gap: .375rem; margin-left: -1px; padding-inline: 1rem; border-left: 1px solid var(--line, #ddd); font-size: .8125rem; } .ds-status dt { color: var(--muted, #545658); } .ds-status dd { display: inline-flex; align-items: center; gap: .375rem; margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; } .ds-status i { width: .5rem; height: .5rem; border-radius: 50%; background: var(--line-strong, #bebebe); } .ds-status dd:not([data-state]) i { display: none; } [data-state=current] i { background: var(--teal, #00978e); } [data-state=delayed] i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted, #545658); } [data-state=stale] { color: var(--red, #b80000); } [data-state=stale] i { background: var(--red, #b80000); }"
+    },
+    {
+      "name": "Error Panel",
+      "kind": "custom",
+      "refersTo": "error-panel",
+      "description": "The one bordered box: red border, red-wash fill, alert icon, and an explicit Error label.",
+      "html": "<div class=\"ds-error\" role=\"alert\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\"/><path d=\"M8 4.75v4M8 11v.25\"/></svg><p><strong>Error:</strong> the archive data could not be loaded. Refresh the page to try again.</p></div>",
+      "css": ".ds-icon { width: 1em; height: 1em; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; } .ds-error { display: flex; align-items: start; gap: .625rem; padding: .875rem 1rem; border: 1px solid var(--red, #b80000); background: var(--red-soft, #fcf2f0); color: var(--ink, #141414); font-size: .9375rem; font-family: var(--sans, 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif); } .ds-error p { margin: 0; } .ds-error .ds-icon { width: 1.25rem; height: 1.25rem; margin-top: .05rem; color: var(--red, #b80000); } .ds-error strong { color: var(--red, #b80000); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Front Page, Annotated",
+    "overview": "The archive sets its latest capture as the front page it recorded and writes its own measurements into the margins. The reading pattern is the BBC News website's: a white page, near-black bold headlines, a lead story over a four-up grid and compact rows, a Most Read column of large red numerals, and hairline rules doing all the structural work. What makes it an instrument rather than a copy is the annotation layer: position numbers, \"New\", \"Up 3\", \"Also #7 in Front page\", capture times in UTC, collection status, and a chart that marks its own gaps.\n\nDensity is newspaper-high and calm. Nothing floats: there are no cards, no shadows, no rounded panels, no fluid display type. Hierarchy comes from weight, size, and a single red accent used for rank, the active section, freshness, and the next action. The archive keeps its own text wordmark and says in the header that it is independent, so it reads as a study of BBC News, never as BBC News.\n\nThe Overview page and the shared shell (masthead, section bar, footer) are the system. Explore, Ask & analyse, and Methodology still run on the previous data-lab styling and are legacy pending redesign; nothing on them is part of this system.",
+    "keyCharacteristics": [
+      "White canvas, near-black ink, grey hairline rules; BBC News red as the only accent.",
+      "Headline-led hierarchy in Inter: bold, tight, left-aligned, tabular figures for every number.",
+      "Structure by rules and columns, never by cards or elevation.",
+      "An annotation vocabulary (position, movement, \"New\", cross-surface \"Also\") set in small meta text beside each headline.",
+      "Independence stated in the masthead; no BBC marks."
+    ],
+    "rules": [
+      {
+        "name": "The One Red Rule",
+        "body": "Red is the only accent and it always means something: rank, current section, new, live, an action, or a fault. It never fills a header band, a panel background, or a button block.",
+        "section": "colors"
+      },
+      {
+        "name": "The Never Red-and-Green Rule",
+        "body": "Red and green are never paired as chart series. The front page is ink and Most Read is red; the lightness gap carries the distinction, and blue is the third series.",
+        "section": "colors"
+      },
+      {
+        "name": "The Teal Is Not Text Rule",
+        "body": "Status teal marks dots and icons only. It is never used for text.",
+        "section": "colors"
+      },
+      {
+        "name": "The Not By Colour Alone Rule",
+        "body": "Errors and states share the red family, so they always carry a second signal: the error panel has an alert icon and a bold \"Error:\" label; stale and failed status read in words beside the dot; delayed uses a hollow ring rather than a hue; movement markers carry chevrons and the words \"Up\" or \"Down\".",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Every rank, count, percentage-point figure, time, and chart label uses tabular numerals.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Mono Rule",
+        "body": "Monospace is for identifiers and code only, never for labels, timestamps, or metadata.",
+        "section": "typography"
+      },
+      {
+        "name": "The Fixed Scale Rule",
+        "body": "Sizes are fixed rem steps changed at breakpoints; no clamp-based fluid display type.",
+        "section": "typography"
+      },
+      {
+        "name": "The Rules Not Cards Rule",
+        "body": "Group content with hairline rules and columns. If a container seems to need a border on all four sides, a background, or a shadow, it is the wrong container for this world. The error panel is the single bordered box, because it is an alert.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use BBC News red (#B80000) for rank numerals, the active-section underline, \"New\", \"Live\", action links, focus, and faults, and nothing else.",
+      "Do separate stories, columns, and status cells with 1px grey rules, and put a 1px ink rule above every section heading and the footer.",
+      "Do set every number in tabular figures.",
+      "Do pair every state colour with words or an icon: \"Error:\" and an alert icon, \"Delayed\" with a hollow ring, chevrons with \"Up\" and \"Down\".",
+      "Do state independence in the header (\"Independent archive · not affiliated with the BBC\") and repeat it in the footer.",
+      "Do give every chart a caption, a legend, marked gaps, and a table alternative.",
+      "Do honour reduced motion; the only transition is the 180ms ease-out nav underline."
+    ],
+    "donts": [
+      "Don't pair red and green as chart series.",
+      "Don't use status teal for text.",
+      "Don't let an error or state rely on colour alone.",
+      "Don't use the BBC blocks logo, a letter-in-square mark, the Reith typeface, or a full-width red header band.",
+      "Don't use cards, drop shadows, or rounded panels to group content.",
+      "Don't set labels, timestamps, or metadata in monospace.",
+      "Don't add uppercase kickers or eyebrows above headings; the only uppercase label is \"Live\", and it appears only when the story is live.",
+      "Don't carry the legacy navy, cyan, amber, or dark-panel styling from Explore, Ask & analyse, or Methodology onto new surfaces."
+    ]
+  }
+}

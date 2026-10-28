@@ -27,3 +27,6 @@ dist/
 *.duckdb
 *.duckdb.wal
 .fenic/
+
+# Impeccable review captures are regenerated on each design review.
+.impeccable/review/

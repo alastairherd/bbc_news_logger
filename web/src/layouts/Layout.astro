@@ -1,4 +1,5 @@
 ---
+import "@fontsource-variable/inter";
 import "../styles/global.css";
 
 interface Props {
@@ -9,6 +10,12 @@ interface Props {
 
 const { title, description, current } = Astro.props;
 const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+const sections = [
+  { id: "overview", label: "Overview", href: base },
+  { id: "explore", label: "Explore", href: `${base}explore/` },
+  { id: "signals", label: "Ask & analyse", href: `${base}signals/` },
+  { id: "methodology", label: "Methodology", href: `${base}methodology/` },
+] as const;
 ---
 
 <!doctype html>
@@ -17,40 +24,46 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#f7f8fb" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="application-name" content="BBC News Analyser" />
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
     <title>{title}</title>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-header">
-      <a class="wordmark" href={base} aria-label="BBC News Analyser home">
-        <span class="wordmark-mark" aria-hidden="true">BN</span>
-        <span>BBC News Analyser</span>
-      </a>
-      <nav aria-label="Primary navigation">
-        <a href={base} aria-current={current === "overview" ? "page" : undefined}>Overview</a>
-        <a href={`${base}explore/`} aria-current={current === "explore" ? "page" : undefined}>Explore</a>
-        <a href={`${base}signals/`} aria-current={current === "signals" ? "page" : undefined}>Ask &amp; analyse</a>
-        <a href={`${base}methodology/`} aria-current={current === "methodology" ? "page" : undefined}>Methodology</a>
+    <header class="masthead">
+      <div class="masthead-bar">
+        <a class="wordmark" href={base}>BBC News Analyser</a>
+        <p class="masthead-note">Independent archive <span aria-hidden="true">·</span> not affiliated with the BBC</p>
+        <a class="masthead-link" href="https://huggingface.co/datasets/AlastairH/bbc-news-logger">
+          Dataset
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 4 12" /></svg>
+          <span class="sr-only">(opens Hugging Face)</span>
+        </a>
+      </div>
+      <nav class="section-nav" aria-label="Sections">
+        <ul>
+          {sections.map((section) => (
+            <li>
+              <a href={section.href} aria-current={current === section.id ? "page" : undefined}>{section.label}</a>
+            </li>
+          ))}
+        </ul>
       </nav>
-      <a class="header-link" href="https://huggingface.co/datasets/AlastairH/bbc-news-logger">
-        Dataset <span aria-hidden="true">↗</span>
-      </a>
     </header>
     <main id="main">
       <slot />
     </main>
-    <footer>
+    <footer class="site-footer">
       <div>
         <strong>BBC News Analyser</strong>
         <p>An independent research project. Not affiliated with or endorsed by the BBC.</p>
       </div>
-      <div class="footer-links">
-        <a href="https://github.com/alastairherd/bbc_news_logger">Source code</a>
-        <a href="https://huggingface.co/datasets/AlastairH/bbc-news-logger">Data card</a>
-      </div>
+      <ul class="footer-links">
+        <li><a href={`${base}methodology/`}>Methodology</a></li>
+        <li><a href="https://github.com/alastairherd/bbc_news_logger">Source code</a></li>
+        <li><a href="https://huggingface.co/datasets/AlastairH/bbc-news-logger">Data card</a></li>
+      </ul>
     </footer>
   </body>
 </html>
