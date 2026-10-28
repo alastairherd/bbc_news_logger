@@ -66,5 +66,9 @@ const sections = [
         <li><a href="https://huggingface.co/datasets/AlastairH/bbc-news-logger">Data card</a></li>
       </ul>
     </footer>
+    <script>
+      // On narrow screens the section bar scrolls; keep the current section visible.
+      document.querySelector<HTMLElement>('.section-nav a[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "center" });
+    </script>
   </body>
 </html>

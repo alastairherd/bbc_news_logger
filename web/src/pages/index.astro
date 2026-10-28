@@ -245,7 +245,9 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       element("#findings-window").innerHTML = `${shortDate.format(new Date(recentStart))} to ${shortDate.format(new Date(recentEnd))}, compared with the previous 14 days. ${number.format(labelled)} labelled article versions.${labelled < LOW_SAMPLE
         ? `<span class="sample-warning"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>Too few labelled articles for reliable comparisons. Collection gaps reduce the sample; treat these changes as provisional.</span>`
         : ""}`;
-      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)} pp`;
+      // On a small sample, two decimals would present noise as precision; show whole points and counts.
+      const small = labelled < LOW_SAMPLE;
+      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(small ? 0 : 2)} pp`;
       const [top, runnerUp] = findings.risingThemes;
       const lead = top && (!runnerUp || top.changePercentagePoints - runnerUp.changePercentagePoints >= 1) ? top : undefined;
       const rising = lead ? findings.risingThemes.slice(1) : findings.risingThemes;
@@ -256,10 +258,10 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       const momentum = [...rising.slice(0, lead ? 3 : 4), ...findings.fallingThemes.slice(0, 2)]
         .filter((row) => !seen.has(row.theme) && seen.add(row.theme));
       element("#theme-momentum").innerHTML = momentum.map((row) =>
-        `<li><a href="${queryLink(row.theme)}">${escape(themeName(row.theme))}</a><span class="figure">${signed(row.changePercentagePoints)}</span></li>`).join("");
+        `<li><a href="${queryLink(row.theme)}">${escape(themeName(row.theme))}</a><span class="figure">${signed(row.changePercentagePoints)}${small ? ` · ${row.recentCount} vs ${row.previousCount}` : ""}</span></li>`).join("");
       element("#surface-skews").innerHTML = findings.surfaceDifferences.slice(0, 6).map((row) => {
         const towards = row.differencePercentagePoints >= 0 ? "most_read" : "front_page";
-        return `<li><a href="${queryLink(row.theme)}">${escape(themeName(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(2)} pp</span></li>`;
+        return `<li><a href="${queryLink(row.theme)}">${escape(themeName(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(small ? 0 : 2)} pp</span></li>`;
       }).join("") || `<li class="empty">More labelled coverage is needed for this comparison.</li>`;
       element("#returning-stories").innerHTML = findings.returningStories.slice(0, 4).map((story, index) =>
         `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div><a href="${base}trends/#recurring-heading">${escape(story.label)}</a><p>${number.format(story.article_count)} articles · latest ${shortDate.format(new Date(story.last_seen))}</p></div></li>`).join("")

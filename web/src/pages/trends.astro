@@ -44,7 +44,7 @@ import Layout from "../layouts/Layout.astro";
         </section>
         <section aria-labelledby="returning-findings-heading">
           <h3 id="returning-findings-heading">Returning stories</h3>
-          <p class="column-note">Recently active events matched across articles.</p>
+          <p class="column-note">Recurring events with the most matched articles.</p>
           <ol id="returning-findings" class="return-list"><li class="empty">Loading…</li></ol>
         </section>
       </div>
@@ -130,6 +130,7 @@ import Layout from "../layouts/Layout.astro";
     let pendingEventId: string | null = null;
     let eventFilterTimer = 0;
     let lastTrend: { rows: TrendSeriesRow[]; value: string } | null = null;
+    let revealDetail = false;
     // Days with at least one homepage capture; a signal cannot be measured on any other day.
     let collectedDays = new Set<string>();
 
@@ -140,6 +141,8 @@ import Layout from "../layouts/Layout.astro";
     const element = (selector: string): HTMLElement => { const result = document.querySelector<HTMLElement>(selector); if (!result) throw new Error(`Missing element: ${selector}`); return result; };
     const control = (selector: string): HTMLInputElement | HTMLSelectElement => { const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector); if (!result) throw new Error(`Missing control: ${selector}`); return result; };
     const label = (value: string) => value.replaceAll("_", " ");
+    // Some event labels are stored as slugs ("reform_uk_record_donations"); show them as words.
+    const eventLabel = (value: string) => /^[a-z0-9_]+$/.test(value) ? label(value).replace(/^./, (first) => first.toUpperCase()) : value;
     const askLink = (theme: string) => `${base}signals/?q=${encodeURIComponent(`How has coverage of ${label(theme)} changed?`)}`;
 
     let signalsWorker: Worker | null = null;
@@ -180,9 +183,11 @@ import Layout from "../layouts/Layout.astro";
     }
 
     function renderFindings(findings: Findings) {
-      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)} pp`;
+      const labelled = findings.window ? findings.window.recentLabelledArticles + findings.window.previousLabelledArticles : 0;
+      // On a small sample, two decimals would present noise as precision; show whole points and counts.
+      const small = labelled < LOW_SAMPLE;
+      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(small ? 0 : 2)} pp`;
       if (findings.window) {
-        const labelled = findings.window.recentLabelledArticles + findings.window.previousLabelledArticles;
         element("#findings-window").innerHTML = `${date.format(new Date(findings.window.recentStart))} to ${date.format(new Date(findings.window.recentEnd))}, compared with the previous 14 days. ${number.format(labelled)} labelled article versions; shares are normalised by labelled count.${labelled < LOW_SAMPLE
           ? `<span class="sample-warning"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>Too few labelled articles for reliable comparisons. Collection gaps reduce the sample; treat these changes as provisional.</span>`
           : ""}`;
@@ -190,17 +195,17 @@ import Layout from "../layouts/Layout.astro";
         element("#findings-window").textContent = "More labelled coverage is needed before two comparable 14-day windows exist.";
       }
       element("#rising-themes").innerHTML = findings.risingThemes.slice(0, 6).map((row) =>
-        `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure">${signed(row.changePercentagePoints)}</span></li>`).join("")
+        `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure">${signed(row.changePercentagePoints)}${small ? ` · ${row.recentCount} vs ${row.previousCount} articles` : ""}</span></li>`).join("")
         || `<li class="empty">No theme rose between the two windows.</li>`;
       element("#surface-differences").innerHTML = findings.surfaceDifferences.slice(0, 6).map((row) => {
         const towards = row.differencePercentagePoints >= 0 ? "most_read" : "front_page";
-        return `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(2)} pp</span></li>`;
+        return `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(small ? 0 : 2)} pp</span></li>`;
       }).join("") || `<li class="empty">More labelled coverage is needed for this comparison.</li>`;
       element("#story-forms").innerHTML = findings.storyForms.slice(0, 7).map((row) =>
         `<li class="share-row"><span>${escape(label(row.storyForm))}</span><span class="share-bar" aria-hidden="true"><i style="width:${Math.min(row.share, 100)}%"></i></span><span class="figure">${row.share.toFixed(1)}%</span></li>`).join("")
         || `<li class="empty">Story-form labels are not available yet.</li>`;
       element("#returning-findings").innerHTML = findings.returningStories.slice(0, 5).map((event, index) =>
-        `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div><a href="#recurring-heading" data-event-id="${escape(event.cluster_id)}">${escape(event.label)}</a><p>${number.format(event.article_count)} articles · latest ${date.format(new Date(event.last_seen))}</p></div></li>`).join("")
+        `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div><a href="#recurring-heading" data-event-id="${escape(event.cluster_id)}">${escape(eventLabel(event.label))}</a><p>${number.format(event.article_count)} articles · latest ${date.format(new Date(event.last_seen))}</p></div></li>`).join("")
         || `<li class="empty">No recurring-story clusters meet the matching threshold yet.</li>`;
     }
 
@@ -281,7 +286,7 @@ import Layout from "../layouts/Layout.astro";
       (element("#previous-event-page") as HTMLButtonElement).disabled = eventPage === 0;
       (element("#next-event-page") as HTMLButtonElement).disabled = (eventPage + 1) * EVENT_PAGE_SIZE >= total || !total;
       element("#event-list").innerHTML = rows.length
-        ? rows.map((event) => `<li><button class="story-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}"><span class="story-row-title">${escape(event.label)}</span><span class="story-meta"><span>${escape(label(event.event_type))}</span><span>${number.format(event.article_count)} articles</span><span>Latest ${date.format(new Date(event.last_seen))}</span></span></button></li>`).join("")
+        ? rows.map((event) => `<li><button class="story-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}"><span class="story-row-title">${escape(eventLabel(event.label))}</span><span class="story-meta"><span>${escape(label(event.event_type))}</span><span>${number.format(event.article_count)} articles</span><span>Latest ${date.format(new Date(event.last_seen))}</span></span></button></li>`).join("")
         : `<li class="empty">No recurring stories match. Try a broader event or theme.</li>`;
     }
 
@@ -299,7 +304,7 @@ import Layout from "../layouts/Layout.astro";
         return `<li><time datetime="${escape(article.fetched_at)}">${date.format(new Date(article.fetched_at))}</time><div><a href="${base}explore/?story=${encodeURIComponent(article.story_id)}">${live ? `<span class="live-label">Live</span> ` : ""}${escape(text)}</a>
           <p class="story-meta">${article.surfaces.length ? article.surfaces.map((surface) => `<span class="list-tag list-${surface}">${SURFACE_NAME[surface] ?? escape(surface)}</span>`).join("") : "<span>Article archive only</span>"}${article.best_position ? `<span>Best #${article.best_position}</span>` : ""}</p></div></li>`;
       }).join("");
-      element("#event-detail").innerHTML = `<h3 class="detail-title" id="event-title">${escape(event.label)}</h3>
+      element("#event-detail").innerHTML = `<h3 class="detail-title" id="event-title" tabindex="-1">${escape(eventLabel(event.label))}</h3>
         <p class="story-meta"><span>${escape(label(event.event_type))}</span>${event.themes.slice(0, 5).map((theme) => `<span>${escape(label(theme))}</span>`).join("")}</p>
         <dl class="fact-grid">
           <div><dt>First article</dt><dd>${date.format(new Date(event.first_seen))}</dd></div>
@@ -360,7 +365,16 @@ import Layout from "../layouts/Layout.astro";
         if (pendingEventId) requestEventDetail(pendingEventId);
         else if (!selectedEvent && message.events.length) requestEventDetail(message.events[0].cluster_id);
       }
-      if (message.type === "event-detail" && message.event) renderEventDetail(message.event);
+      if (message.type === "event-detail" && message.event) {
+        renderEventDetail(message.event);
+        // On stacked layouts the record sits below the list, so bring it into view after a tap.
+        if (revealDetail) {
+          revealDetail = false;
+          const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          element("#event-detail").scrollIntoView({ block: "start", behavior: reduce ? "instant" : "smooth" });
+          element("#event-title").focus({ preventScroll: true });
+        }
+      }
       if (message.type === "events-error") showEventError(message.message);
     }
 
@@ -372,7 +386,10 @@ import Layout from "../layouts/Layout.astro";
     });
     element("#event-list").addEventListener("click", (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
-      if (button?.dataset.id) requestEventDetail(button.dataset.id);
+      if (button?.dataset.id) {
+        requestEventDetail(button.dataset.id);
+        revealDetail = window.matchMedia("(max-width: 900px)").matches;
+      }
     });
     element("#returning-findings").addEventListener("click", (event) => {
       const link = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-event-id]");
