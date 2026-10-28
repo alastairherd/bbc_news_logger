@@ -32,7 +32,9 @@ the source material remains inspectable.
 - Search queries and embedding comparisons run locally in the browser.
 - The embedding model and index load only after a semantic search begins.
 - The shared synthesis path sends the question and bounded evidence rows to a rate-limited
-  Cloudflare Worker; it does not send the full archive.
+  Cloudflare Worker; it does not send the full archive. The Worker enforces a shared daily
+  spending cap (`DAILY_BUDGET_USD`, $0.50 per UTC day by default) by reserving each request's
+  worst-case cost in a Durable Object before calling DeepSeek and settling the billed cost after.
 - A visitor-supplied DeepSeek key is kept in session storage for that browser tab and sent directly
   to DeepSeek instead of this project.
 - Fast, Reasoned, and Deep analysis modes control the bounded DeepSeek thinking allowance.

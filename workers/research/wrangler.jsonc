@@ -4,6 +4,13 @@
   "main": "src/index.mjs",
   "compatibility_date": "2026-07-14",
   "workers_dev": true,
+  "vars": {
+    "DAILY_BUDGET_USD": "0.50"
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "ANSWER_BUDGET", "class_name": "AnswerBudget" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AnswerBudget"] }],
   "triggers": {
     "crons": ["7 * * * *"]
   },

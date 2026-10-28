@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InputError, deepSeekRequest, isPeakPricing, normalizeRequest, parseCompletion } from "../src/core.mjs";
+import { InputError, deepSeekRequest, isPeakPricing, maximumRequestCostUsd, normalizeRequest, parseCompletion, reserveSpend, settleSpend } from "../src/core.mjs";
 import { COLLECTION_DISPATCH_URL, dispatchCollection } from "../src/schedule.mjs";
 
 const row = {
@@ -93,4 +93,30 @@ test("scheduled collection reports missing tokens and GitHub errors", async () =
   assert.equal(await dispatchCollection("", async () => assert.fail("must not call GitHub")), false);
   const denied = async () => new Response("Bad credentials", { status: 401 });
   await assert.rejects(dispatchCollection("token-value", denied), /HTTP 401: Bad credentials/);
+});
+
+test("the reserved cost bounds the billed cost of the largest request", () => {
+  const evidence = Array.from({ length: 20 }, (_, index) => ({ ...row, id: index + 1, summary: "x".repeat(1200) }));
+  const request = deepSeekRequest("q".repeat(400), evidence, "max");
+  const reserved = maximumRequestCostUsd(request);
+  const promptBytes = new TextEncoder().encode(JSON.stringify(request.messages)).length;
+  const billed = parseCompletion({
+    choices: [{ message: { content: JSON.stringify({ answer: "A [1].", findings: [], limitations: "" }) } }],
+    usage: { prompt_tokens: promptBytes, prompt_cache_miss_tokens: promptBytes, completion_tokens: request.max_tokens },
+  }, 20, "max", new Date("2026-10-28T02:00:00Z")).usage.costUsd;
+  assert.ok(reserved >= billed);
+  assert.ok(reserved < 0.05);
+});
+
+test("the daily ledger refuses spend past its limit and resets each UTC day", () => {
+  const first = reserveSpend(undefined, { day: "2026-10-28", amountUsd: 0.3, limitUsd: 0.5 });
+  assert.equal(first.ok, true);
+  const second = reserveSpend(first.ledger, { day: "2026-10-28", amountUsd: 0.3, limitUsd: 0.5 });
+  assert.equal(second.ok, false);
+  assert.equal(second.ledger.spentUsd, 0.3);
+  const settled = settleSpend(first.ledger, { day: "2026-10-28", reservedUsd: 0.3, actualUsd: 0.01 });
+  assert.ok(Math.abs(settled.spentUsd - 0.01) < 1e-12);
+  const nextDay = reserveSpend(settled, { day: "2026-10-29", amountUsd: 0.3, limitUsd: 0.5 });
+  assert.deepEqual(nextDay, { ok: true, ledger: { day: "2026-10-29", spentUsd: 0.3 } });
+  assert.equal(settleSpend(nextDay.ledger, { day: "2026-10-28", reservedUsd: 0.3, actualUsd: 0.01 }), null);
 });

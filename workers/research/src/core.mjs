@@ -7,6 +7,29 @@ const INPUT_CACHE_MISS_PRICE = 0.15;
 const OUTPUT_PRICE = 0.6;
 const PEAK_HOURS_UTC = [[1, 4], [6, 10]];
 
+// Chat framing beyond the counted message bytes.
+const REQUEST_OVERHEAD_TOKENS = 1_024;
+
+// Upper bound on one request's cost, reserved before it is sent. Tokenizers emit no more tokens
+// than the UTF-8 bytes they read, and the bound assumes peak pricing with no cache hits.
+export function maximumRequestCostUsd(request) {
+  const inputTokens = new TextEncoder().encode(JSON.stringify(request.messages)).length + REQUEST_OVERHEAD_TOKENS;
+  return 2 * (inputTokens * INPUT_CACHE_MISS_PRICE + request.max_tokens * OUTPUT_PRICE) / 1_000_000;
+}
+
+// Ledger steps are pure so the Durable Object that stores them stays a thin wrapper.
+export function reserveSpend(ledger, { day, amountUsd, limitUsd }) {
+  const current = ledger?.day === day ? ledger : { day, spentUsd: 0 };
+  if (current.spentUsd + amountUsd > limitUsd) return { ok: false, ledger: current };
+  return { ok: true, ledger: { day, spentUsd: current.spentUsd + amountUsd } };
+}
+
+export function settleSpend(ledger, { day, reservedUsd, actualUsd }) {
+  // A reservation made before midnight UTC belongs to a ledger that has already rolled over.
+  if (ledger?.day !== day) return null;
+  return { day, spentUsd: Math.max(0, ledger.spentUsd - reservedUsd + actualUsd) };
+}
+
 export function isPeakPricing(moment) {
   const day = moment.getUTCDay();
   const hour = moment.getUTCHours();

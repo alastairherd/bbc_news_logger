@@ -1,5 +1,7 @@
-import { InputError, MODEL, deepSeekRequest, normalizeRequest, parseCompletion } from "./core.mjs";
+import { InputError, MODEL, deepSeekRequest, maximumRequestCostUsd, normalizeRequest, parseCompletion } from "./core.mjs";
 import { dispatchCollection } from "./schedule.mjs";
+
+export { AnswerBudget } from "./budget.mjs";
 
 const ALLOWED_ORIGINS = new Set([
   "https://alastairherd.github.io",
@@ -8,6 +10,19 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 const PROMPT_VERSION = "2026-07-14-v2";
 const requestsByClient = new Map();
+const DEFAULT_DAILY_BUDGET_USD = 0.5;
+const BUDGET_EXHAUSTED = "Today's shared answer budget has been used. Answers resume after midnight UTC, or you can use your own DeepSeek key on this page.";
+
+function answerBudget(env) {
+  return env.ANSWER_BUDGET?.get(env.ANSWER_BUDGET.idFromName("global"));
+}
+
+function dailyLimitUsd(env) {
+  const value = Number(env.DAILY_BUDGET_USD);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_DAILY_BUDGET_USD;
+}
+
+const utcDay = () => new Date().toISOString().slice(0, 10);
 
 function headers(origin) {
   const output = {
@@ -51,7 +66,9 @@ export default {
       return new Response(null, { status: ALLOWED_ORIGINS.has(origin) ? 204 : 403, headers: headers(origin) });
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return json({ status: "ok", model: MODEL, runtime: "cloudflare-workers", reasoningModes: ["off", "high", "max"] }, 200, origin);
+      const budget = answerBudget(env);
+      const answerBudgetStatus = budget ? { limitUsd: dailyLimitUsd(env), spentUsd: await budget.spent(utcDay()) } : null;
+      return json({ status: "ok", model: MODEL, runtime: "cloudflare-workers", reasoningModes: ["off", "high", "max"], answerBudget: answerBudgetStatus }, 200, origin);
     }
     if (request.method !== "POST" || url.pathname !== "/api/research") {
       return json({ detail: "Not found." }, 404, origin);
@@ -77,17 +94,28 @@ export default {
     const cached = await cache.match(cacheKey);
     if (cached) return json({ ...await cached.json(), cached: true }, 200, origin);
     if (!env.DEEPSEEK_API_KEY) return json({ detail: "DeepSeek is not configured." }, 503, origin);
+    const budget = answerBudget(env);
+    // Without the shared ledger there is no spending limit, so the paid call is refused.
+    if (!budget) return json({ detail: "The shared answer budget is not configured." }, 503, origin);
+
+    const body = deepSeekRequest(normalized.query, normalized.evidence, normalized.reasoning);
+    const day = utcDay();
+    const reservedUsd = maximumRequestCostUsd(body);
+    const reservation = await budget.reserve(day, reservedUsd, dailyLimitUsd(env));
+    if (!reservation.ok) return json({ detail: BUDGET_EXHAUSTED, budgetExhausted: true }, 429, origin);
 
     let provider;
     try {
       provider = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: { "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify(deepSeekRequest(normalized.query, normalized.evidence, normalized.reasoning)),
+        body: JSON.stringify(body),
       });
       const payload = await provider.json();
       if (!provider.ok) throw new Error(String(payload?.error?.message ?? `DeepSeek returned ${provider.status}`));
       const answer = parseCompletion(payload, normalized.evidence.length, normalized.reasoning);
+      // Replace the worst-case reservation with the billed cost. Failed calls keep their reservation.
+      context.waitUntil(budget.settle(day, reservedUsd, answer.usage.costUsd));
       const cacheResponse = new Response(JSON.stringify(answer), {
         headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=86400" },
       });
