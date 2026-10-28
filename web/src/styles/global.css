@@ -366,6 +366,12 @@
   .source-summary { max-width: 72ch; margin-top: .375rem; font-size: .9375rem; }
 
   .trend-block { margin-top: 2.5rem; }
+  .weekly-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 2.5rem; margin-top: .75rem; }
+  .weekly-item { padding: 1rem 0; border-bottom: 1px solid var(--line); }
+  .weekly-item h3 a { color: var(--red); text-decoration: none; }
+  .weekly-item h3 a:hover { color: var(--red-hover); text-decoration: underline; }
+  .weekly-summary { margin-top: .5rem; font-size: .9375rem; line-height: 1.6; }
+  .trend-block > .source-note { margin-top: .75rem; }
   .findings-columns { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .change-list li.share-row { display: grid; grid-template-columns: minmax(0, 1fr) 3.5rem 3rem; align-items: center; gap: .75rem; }
   .share-bar { height: .375rem; background: var(--line); }
@@ -415,7 +421,7 @@
 @media (max-width: 900px) {
   .capture-grid, .section-intro, .changing-columns, .archive { grid-template-columns: 1fr; }
   .archive-list { padding-right: 0; }
-  .event-explorer, .findings-columns { grid-template-columns: 1fr; }
+  .event-explorer, .findings-columns, .weekly-grid { grid-template-columns: 1fr; }
   .event-index { padding-right: 0; }
   .event-detail { margin-top: 1.5rem; padding: .5rem 0 0; border-top: 1px solid var(--ink); border-left: 0; }
   .trend-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }

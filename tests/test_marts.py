@@ -41,6 +41,7 @@ def test_build_marts_produces_static_research_payloads(tmp_path) -> None:
         "rank-series.json",
         "daily.json",
         "surface-lag.json",
+        "weekly-summaries.json",
         "semantic-trends.json",
         "recurring-events.json",
         "semantic-findings.json",
@@ -162,3 +163,38 @@ def test_findings_surface_the_most_substantial_recurring_stories() -> None:
     )
 
     assert findings["returningStories"][0]["cluster_id"] == "older-large"
+
+
+def test_weekly_mart_publishes_the_newest_week_largest_themes_first(tmp_path) -> None:
+    from datetime import date
+
+    from bbc_news_logger.weekly import WEEKLY_SCHEMA
+
+    def row(week: date, theme: str, count: int, summary: str) -> dict[str, object]:
+        return {
+            "week_start": week,
+            "week_end": date(week.year, week.month, week.day + 6),
+            "theme": theme,
+            "article_count": count, "summary": summary, "evidence_story_ids": ["s1"],
+            "evidence_titles": ["Title"], "evidence_urls": ["https://www.bbc.co.uk/news/articles/s1"],
+            "model": "deepseek/deepseek-v4.1-flash-1017", "prompt_version": "v1",
+            "generated_at": datetime(2026, 10, 26, tzinfo=timezone.utc), "cost_usd": 0.001,
+        }
+
+    weekly = pa.Table.from_pylist([
+        row(date(2026, 10, 12), "old", 9, "Older week."),
+        row(date(2026, 10, 19), "energy", 3, "Energy [1]."),
+        row(date(2026, 10, 19), "budget", 7, "Budget [1]."),
+    ], schema=WEEKLY_SCHEMA)
+    observed_at = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    rows = [
+        Observation.create(
+            observed_at=observed_at, surface="front_page", position=1, title="Story", url="/news/a"
+        )
+    ]
+    build_marts(observations_table(rows), tmp_path, weekly=weekly)
+
+    payload = json.loads((tmp_path / "weekly-summaries.json").read_text())
+    assert payload["weekStart"] == "2026-10-19"
+    assert [theme["theme"] for theme in payload["themes"]] == ["budget", "energy"]
+    assert payload["themes"][0]["evidence"][0]["storyId"] == "s1"

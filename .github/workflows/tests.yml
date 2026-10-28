@@ -66,5 +66,5 @@ jobs:
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen --extra semantic
       - run: uv run --no-sync fenic check services/fenic/bootstrap.py
-      - run: uv run --no-sync fenic check services/fenic/enrich.py
       - run: uv run --no-sync fenic check services/fenic/serve.py
+      - run: uv run --no-sync fenic check services/fenic/weekly.py

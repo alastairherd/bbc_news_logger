@@ -291,7 +291,7 @@ def test_clustering_does_not_merge_a_transitive_similarity_chain() -> None:
 def test_enrichment_defers_paid_requests_during_peak_pricing(
     monkeypatch, tmp_path, allow_peak: bool
 ) -> None:
-    from services.fenic import enrich as enrichment
+    from bbc_news_logger.jobs import enrich as enrichment
 
     now = datetime.now(timezone.utc)
     articles = pa.Table.from_pylist([_article("hash-a", "Talks", now)], schema=ARTICLE_SCHEMA)

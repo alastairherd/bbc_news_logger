@@ -58,4 +58,4 @@ if [[ "$allow_peak" == true ]]; then
   arguments+=(--allow-peak)
 fi
 
-uv run --no-sync python -m services.fenic.enrich "${arguments[@]}"
+uv run --no-sync python -m bbc_news_logger.jobs.enrich "${arguments[@]}"

@@ -24,6 +24,7 @@ SEMANTIC_PREFIXES = (
     "semantic/signals",
     "semantic/embeddings",
     "semantic/events",
+    "semantic/weekly",
 )
 
 
@@ -75,8 +76,47 @@ def load_remote_mart_tables(
     return tables
 
 
+def _latest_week(weekly: pa.Table | None) -> dict[str, object]:
+    """Publish the newest week's theme summaries, largest themes first."""
+
+    if weekly is None or weekly.num_rows == 0:
+        return {"weekStart": None, "weekEnd": None, "themes": []}
+    rows = weekly.to_pylist()
+    week = max(row["week_start"] for row in rows)
+    latest: dict[str, dict[str, object]] = {}
+    for row in rows:
+        if row["week_start"] == week and (
+            row["theme"] not in latest or row["generated_at"] > latest[row["theme"]]["generated_at"]
+        ):
+            latest[row["theme"]] = row
+    themes = sorted(latest.values(), key=lambda row: (-row["article_count"], row["theme"]))
+    return {
+        "weekStart": week.isoformat(),
+        "weekEnd": themes[0]["week_end"].isoformat(),
+        "model": themes[0]["model"],
+        "themes": [
+            {
+                "theme": row["theme"],
+                "articleCount": row["article_count"],
+                "summary": row["summary"],
+                "evidence": [
+                    {"storyId": story_id, "title": title, "url": url}
+                    for story_id, title, url in zip(
+                        row["evidence_story_ids"],
+                        row["evidence_titles"],
+                        row["evidence_urls"],
+                        strict=True,
+                    )
+                ],
+            }
+            for row in themes
+        ],
+    }
+
+
 def _records(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
-    table = cursor.to_arrow_table()
+    # fetch_arrow_table works on DuckDB 1.4, which Fenic 0.13 pins for the shared lockfile.
+    table = cursor.fetch_arrow_table()
     rows = table.to_pylist()
     for row in rows:
         for key, value in tuple(row.items()):
@@ -428,6 +468,7 @@ def build_marts(
     signals: pa.Table | None = None,
     embeddings: pa.Table | None = None,
     events: pa.Table | None = None,
+    weekly: pa.Table | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
@@ -550,6 +591,7 @@ def build_marts(
         "rank-series.json": rank_series,
         "daily.json": daily,
         "surface-lag.json": lag,
+        "weekly-summaries.json": _latest_week(weekly),
         **semantic_payloads,
     }
     for name, payload in payloads.items():
@@ -592,4 +634,5 @@ def build_remote_marts(output_dir: Path, dataset_id: str = DEFAULT_DATASET_ID) -
             signals=tables["semantic/signals"],
             embeddings=tables["semantic/embeddings"],
             events=tables["semantic/events"],
+            weekly=tables["semantic/weekly"],
         )

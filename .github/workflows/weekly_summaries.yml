@@ -1,0 +1,53 @@
+name: Write weekly theme summaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the summaries to the dataset
+        required: false
+        default: true
+        type: boolean
+      week_end:
+        description: First UTC day after the week to summarise (YYYY-MM-DD); empty means today
+        required: false
+        type: string
+  # Mondays after the daily semantic refresh, inside DeepSeek's off-peak window.
+  schedule:
+    - cron: "47 12 * * 1"
+
+concurrency:
+  group: bbc-news-weekly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      PUBLISH: ${{ github.event_name == 'schedule' || inputs.publish }}
+      WEEK_END: ${{ inputs.week_end }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install the locked Fenic runtime
+        run: uv sync --frozen --no-dev --extra semantic
+      - name: Summarise the week's themes with Fenic
+        shell: bash
+        run: |
+          if [[ -z "$OPENROUTER_API_KEY" ]]; then
+            echo "::notice::OPENROUTER_API_KEY is not configured; no summaries were written."
+            exit 0
+          fi
+          args=()
+          if [[ -n "$WEEK_END" ]]; then args+=(--week-end "$WEEK_END"); fi
+          if [[ "$PUBLISH" == "true" ]]; then args+=(--publish); fi
+          uv run --no-sync python -m services.fenic.weekly "${args[@]}"

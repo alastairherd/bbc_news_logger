@@ -21,6 +21,15 @@ import Layout from "../layouts/Layout.astro";
       </dl>
     </section>
 
+    <section class="trend-block" aria-labelledby="weekly-heading">
+      <div class="section-intro">
+        <h2 id="weekly-heading" class="rule-heading">This week</h2>
+        <p id="weekly-window">Loading the latest weekly summaries…</p>
+      </div>
+      <div class="weekly-grid" id="weekly-summaries"></div>
+      <p class="source-note">Written by DeepSeek V4.1 Flash through Fenic from the week’s article summaries, and can be wrong. Numbers link to the stories each sentence cites.</p>
+    </section>
+
     <section class="trend-block" aria-labelledby="findings-heading">
       <div class="section-intro">
         <h2 id="findings-heading" class="rule-heading">Latest findings</h2>
@@ -111,6 +120,8 @@ import Layout from "../layouts/Layout.astro";
     interface ThemeChange { theme: string; recentCount: number; previousCount: number; changePercentagePoints: number }
     interface SurfaceDifference { theme: string; differencePercentagePoints: number }
     interface StoryFormFinding { storyForm: string; count: number; share: number }
+    interface WeeklyTheme { theme: string; articleCount: number; summary: string; evidence: { storyId: string; title: string; url: string }[] }
+    interface WeeklySummaries { weekStart: string | null; weekEnd: string | null; themes: WeeklyTheme[] }
     interface Findings { window: null | { recentStart: string; recentEnd: string; recentLabelledArticles: number; previousLabelledArticles: number }; risingThemes: ThemeChange[]; storyForms: StoryFormFinding[]; surfaceDifferences: SurfaceDifference[]; returningStories: EventCluster[] }
 
     const SURFACE_NAME: Record<string, string> = { front_page: "Front page", most_read: "Most Read" };
@@ -180,6 +191,23 @@ import Layout from "../layouts/Layout.astro";
         type: "init-events",
         url: new URL(`${base}data/recurring-events.json`, location.href).href,
       })).catch(() => showEventError("The recurring-story worker could not start. Refresh the page to try again."));
+    }
+
+    function renderWeekly(weekly: WeeklySummaries) {
+      if (!weekly.weekStart || !weekly.themes.length) {
+        element("#weekly-window").textContent = "Weekly summaries are written each Monday once enough labelled articles exist.";
+        return;
+      }
+      element("#weekly-window").textContent = `${date.format(new Date(weekly.weekStart))} to ${date.format(new Date(weekly.weekEnd ?? weekly.weekStart))}: the themes with the most labelled articles.`;
+      element("#weekly-summaries").innerHTML = weekly.themes.map((theme) => {
+        // Citation markers become links to the archive record of the cited story.
+        const summary = escape(theme.summary).replace(/\[(\d+)\]/g, (marker, index) => {
+          const story = theme.evidence[Number(index) - 1];
+          return story ? `<a class="citation" href="${base}explore/?story=${encodeURIComponent(story.storyId)}" title="${escape(story.title)}">${index}</a>` : marker;
+        });
+        return `<article class="weekly-item"><h3><a href="${askLink(theme.theme)}">${escape(label(theme.theme))}</a></h3>
+          <p class="story-meta"><span>${number.format(theme.articleCount)} labelled articles</span></p><p class="weekly-summary">${summary}</p></article>`;
+      }).join("");
     }
 
     function renderFindings(findings: Findings) {
@@ -409,7 +437,9 @@ import Layout from "../layouts/Layout.astro";
       fetch(`${base}data/manifest.json`).then((response) => response.json()),
       fetch(`${base}data/semantic-findings.json`).then((response) => response.json()),
       fetch(`${base}data/daily.json`).then((response) => response.json()).catch(() => []),
-    ]).then(([manifest, findings, daily]: [Manifest, Findings, { observed_date: string }[]]) => {
+      fetch(`${base}data/weekly-summaries.json`).then((response) => response.json()).catch(() => ({ weekStart: null, weekEnd: null, themes: [] })),
+    ]).then(([manifest, findings, daily, weekly]: [Manifest, Findings, { observed_date: string }[], WeeklySummaries]) => {
+      renderWeekly(weekly);
       collectedDays = new Set(daily.map((row) => row.observed_date));
       renderFindings(findings);
       const semantic = manifest.semantics;

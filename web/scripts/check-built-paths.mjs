@@ -58,8 +58,8 @@ for (const mart of ["data/semantic-documents.json", "data/semantic-vectors.i8"])
   if (!signalOutput.includes(mart)) throw new Error(`signals route is missing mart request: ${mart}`);
 }
 
-for (const mart of ["data/semantic-trends.json", "data/recurring-events.json", "data/semantic-findings.json"]) {
+for (const mart of ["data/semantic-trends.json", "data/recurring-events.json", "data/semantic-findings.json", "data/weekly-summaries.json"]) {
   if (!trendOutput.includes(mart)) throw new Error(`trends route is missing mart request: ${mart}`);
 }
 
-console.log(`Verified ${pages.length} GitHub Pages routes and eleven data-mart requests.`);
+console.log(`Verified ${pages.length} GitHub Pages routes and twelve data-mart requests.`);

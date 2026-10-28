@@ -1,12 +1,43 @@
-# Fenic research sidecar
+# Fenic services
 
-This optional service turns the public Hugging Face dataset into inspectable Fenic catalog tables
-and exposes Fenic's bounded system tools over streamable HTTP MCP at `/mcp`.
+This folder holds the parts of the project that run on [Fenic](https://github.com/typedef-ai/fenic):
 
-It is deliberately separate from the static dashboard. If this service is stopped, data collection,
-the public dataset, and the GitHub Pages explorer continue working.
+- **Weekly theme summaries** (`weekly.py`), which use Fenic's `semantic.map` to write cited
+  summaries of each week's most-covered themes.
+- **The MCP research service** (`bootstrap.py`, `serve.py`), which turns the public Hugging Face
+  dataset into Fenic catalog tables and exposes Fenic's bounded system tools over streamable HTTP
+  MCP at `/mcp`.
 
-## Run locally
+The daily embedding, labelling, and clustering jobs do not use Fenic and live in
+`src/bbc_news_logger/jobs/`.
+
+## Weekly theme summaries
+
+Every Monday the `Write weekly theme summaries` workflow takes the seven complete UTC days before
+the run, groups that week's labelled articles by theme, and keeps up to eight themes with at least
+three articles. Each theme's evidence is the newest 30 articles, numbered, with their headline and
+existing one-sentence label summary. Fenic sends one prompt per theme and asks for two or three
+neutral sentences that cite the numbered articles; citations outside the evidence are removed.
+
+```bash
+# Report the themes and the cost bound without calling a model
+uv run --extra semantic python -m services.fenic.weekly --dry-run
+
+# Write and publish summaries (requires OPENROUTER_API_KEY and HF_TOKEN)
+uv run --extra semantic python -m services.fenic.weekly --publish
+```
+
+Fenic 0.13 has no DeepSeek provider of its own, so the job reaches DeepSeek V4.1 Flash
+(`deepseek/deepseek-v4.1-flash-1017`) through Fenic's OpenRouter provider. Before any request the
+job computes a worst-case cost from UTF-8 byte counts and capped output, at double OpenRouter's
+listed price. It refuses to run above `$0.10` per run or `$0.25` per calendar month, counting the
+cost Fenic reports for every published summary row. Results are published to `semantic/weekly/`
+and appear in the This week section of the Trends page.
+
+## MCP research service
+
+It is deliberately separate from the static site. If this service is stopped, data collection,
+the public dataset, and the GitHub Pages site continue working.
 
 ```bash
 uv sync --extra semantic
@@ -15,48 +46,8 @@ uv run --extra semantic uvicorn services.fenic.serve:app --host 0.0.0.0 --port 7
 ```
 
 The public dataset does not require a Hugging Face token. Set `HF_TOKEN` to avoid anonymous API
-limits. The service's ordinary search, profile, read, and SQL analysis tools do not call a language
-model.
-
-Pass `--tables article_snapshots story_signals` to bootstrap only those catalog tables for local
-analysis. Semantic refreshes do not need to bootstrap a persistent catalog: they read the required
-Hugging Face Parquet directly through Fenic and persist only the signal table.
-
-Semantic enrichment is an explicit local batch operation. The wrapper accepts a maximum number of
-article versions and defaults to 200:
-
-```bash
-./scripts/refresh_semantics.sh 200
-```
-
-The wrapper reads the ignored `CREDS.txt` when present and accepts either `DEEPSEEK_API_KEY` or the
-existing `DEEPSEEK_API` name. Authenticate this machine with `hf auth login`, or export `HF_TOKEN`,
-before publishing. Use `./scripts/refresh_semantics.sh 200 --local-only` to build and inspect output
-under `dist/` without uploading it.
-
-It calls DeepSeek's native OpenAI-compatible API with `deepseek-flash` (V4.1 Flash), validates the
-JSON, and then stores the typed result in Fenic. This boundary is intentional because Fenic 0.10 does
-not have a first-class DeepSeek model provider. Fenic still owns the catalog, Parquet output, SQL
-analysis, and MCP tools.
-
-Each result includes topic, reusable themes, summary, entities, event label/type, and story form.
-Thinking is disabled, each article input is capped at 32,000 UTF-8 bytes, and up to eight articles
-are sent in one request. Four requests may run concurrently. Content hashes avoid repeat billing.
-
-The process calculates cost from DeepSeek's returned token counters and writes a run manifest to
-`dist/semantic-run.json`. Each successful response is committed to a synchronous SQLite WAL before
-the next wave starts. Publishing buffers those responses into immutable 256-row Parquet shards,
-reducing Hugging Face commits while retaining per-response paid-call recovery locally.
-The budget defaults to `$1.00` and the code rejects any higher process value. Persistent dataset
-rows and unpublished checkpoint rows jointly enforce the separate `$7.50` backfill and `$1.00`
-monthly ledgers. If a Hub upload fails, enrichment switches to local checkpointing and reports that
-publication was deferred instead of discarding completed paid work.
-
-## Deployment
+limits. The service's search, profile, read, and SQL analysis tools do not call a language model.
+Pass `--tables article_snapshots story_signals` to bootstrap only those catalog tables.
 
 The Docker image listens on port `7860` and persists its catalog beneath `/data`. A public service
 should set `FENIC_DB_PATH=/data` and mount durable storage there.
-
-Build and run this image locally or on a separate Docker host when an HTTP MCP service is needed.
-The historical BGE backfill does not require this image or a hosted Fenic service; it runs directly
-on a GitHub-hosted CPU runner and checkpoints vectors to the Hugging Face dataset.

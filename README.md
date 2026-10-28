@@ -197,6 +197,7 @@ uv run bbc-news compact-dataset --publish
 | Collect BBC News observations | Hourly at `:07`, dispatched by a Cloudflare cron | Validates both surfaces and publishes observations and run metadata |
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global rate limit |
 | Refresh semantic analysis | Daily at `12:23 UTC` | Embeds and labels new content hashes in DeepSeek's off-peak window, checkpoints progress, and refreshes clusters |
+| Write weekly theme summaries | Mondays at `12:47 UTC` | Fenic writes cited summaries of the week's most-covered themes |
 | Compact the dataset | Weekly | Atomically folds incremental Parquet shards into compact bases |
 | Deploy the analyser | Every three hours and relevant pushes | Rebuilds public marts and deploys GitHub Pages |
 | Deploy the research Worker | Relevant Worker changes | Publishes the bounded DeepSeek synthesis endpoint |
@@ -215,12 +216,18 @@ not backfill missed observations or protect against GitHub outages or workflow f
 
 ## Fenic and MCP
 
-[`services/fenic`](services/fenic/) is an optional research interface over the same Hugging Face
-tables. It materializes a persistent [Fenic](https://github.com/typedef-ai/fenic) catalog and
-exposes bounded schema, profile, search, read, and SQL-analysis tools over MCP.
+[`services/fenic`](services/fenic/) holds the parts that run on
+[Fenic](https://github.com/typedef-ai/fenic):
 
-Fenic is not required for the public website, embeddings, or semantic search. The service is
-available for local Docker use or deployment to a separate Python host.
+- **Weekly theme summaries.** Each Monday, Fenic's `semantic.map` writes two or three cited
+  sentences for each of the week's most-covered themes, routed to DeepSeek V4.1 Flash through
+  Fenic's OpenRouter provider and capped at $0.10 per run and $0.25 per month. They appear in the
+  This week section of Trends.
+- **An optional MCP research service**, which materializes a persistent Fenic catalog over the
+  Hugging Face tables and exposes bounded schema, profile, search, read, and SQL-analysis tools.
+
+The daily embedding, labelling, and clustering jobs do not use Fenic; they live in
+`src/bbc_news_logger/jobs/`.
 
 <details>
 <summary><strong>Maintainer operations</strong></summary>
@@ -268,10 +275,10 @@ Uploaded 256-vector checkpoints make timed-out runs resumable without repeating 
 ## Repository layout
 
 ```text
-src/bbc_news_logger/   collector, schemas, publication, migration, and marts
+src/bbc_news_logger/   collector, schemas, publication, migration, marts, and scheduled jobs
 tests/                 parser, storage, migration, and mart contract tests
 web/                   Astro research interface and browser workers
-services/fenic/        optional Fenic catalog and MCP service
+services/fenic/        Fenic weekly summaries and optional MCP service
 workers/research/      bounded cited-synthesis Cloudflare Worker
 datasets/              Hugging Face dataset cards
 .github/workflows/     collection, publication, CI, and deployment

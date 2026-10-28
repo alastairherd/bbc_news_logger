@@ -61,7 +61,7 @@ jobs:
         run: uv sync --frozen --no-dev --extra embedding
       - name: Embed new article versions
         run: >-
-          uv run --no-sync python -m services.fenic.embed
+          uv run --no-sync python -m bbc_news_logger.jobs.embed
           --limit "$SEMANTIC_LIMIT" --batch-size 256 --publish
       - name: Label new article versions within the budget
         if: github.event_name != 'workflow_dispatch' || inputs.run_deepseek
@@ -71,7 +71,7 @@ jobs:
             echo "::notice::DEEPSEEK_API_KEY is not configured; embeddings were still refreshed."
             exit 0
           fi
-          uv run --no-sync python -m services.fenic.enrich \
+          uv run --no-sync python -m bbc_news_logger.jobs.enrich \
             --limit "$SEMANTIC_LIMIT" \
             --batch-size 8 \
             --concurrency 4 \
@@ -81,7 +81,7 @@ jobs:
         if: ${{ always() && !cancelled() }}
         shell: bash
         run: |
-          if ! uv run --no-sync python -m services.fenic.cluster --publish; then
+          if ! uv run --no-sync python -m bbc_news_logger.jobs.cluster --publish; then
             echo "::notice::Clusters remain unchanged until both signals and embeddings are available."
           fi
       - name: Retain run manifests and local paid-call checkpoint
