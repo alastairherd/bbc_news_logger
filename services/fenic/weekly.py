@@ -119,6 +119,8 @@ def main() -> None:
         run_cost_usd=cost,
         generated_at=datetime.now(timezone.utc),
     )
+    for row in table.to_pylist():
+        print(json.dumps({"theme": row["theme"], "summary": row["summary"]}), flush=True)
     print(json.dumps({"summaries": table.num_rows, "cost_usd": cost}), flush=True)
     if args.publish and table.num_rows:
         HuggingFacePublisher(dataset_id=args.dataset).upsert_table(
