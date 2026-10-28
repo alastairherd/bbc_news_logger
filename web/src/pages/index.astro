@@ -161,10 +161,11 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       return truncated ? `Tracked ${span} or more` : `Tracked ${span}`;
     }
 
-    // BBC live pages carry a "Live" prefix that the scraper captures as part of the title.
-    function titleParts(title: string): { live: boolean; text: string } {
-      const match = title.match(/^live\s*[.:·\-–\u00a0\u00c2\s]+/i);
-      return match ? { live: true, text: title.slice(match[0].length) } : { live: false, text: title };
+    // Live pages are marked by their URL; titles captured before October 2026 also carry a "Live" prefix.
+    function titleParts(row: RankRow): { live: boolean; text: string } {
+      const match = row.title.match(/^live\s*[.:·\-–\u00a0\u00c2\s]+/i);
+      const text = match ? row.title.slice(match[0].length) : row.title;
+      return { live: Boolean(match) || /\/news\/live\//.test(row.url), text };
     }
 
     function renderCapture(rows: RankRow[]) {
@@ -199,7 +200,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
         return `<p class="story-meta">${items.join("")}</p>`;
       };
       const headline = (row: RankRow) => {
-        const { live, text } = titleParts(row.title);
+        const { live, text } = titleParts(row);
         return `<a href="${escape(row.url)}">${live ? `<span class="live-label">Live</span> ` : ""}${escape(text)}<span class="sr-only"> (opens BBC News)</span></a>`;
       };
 

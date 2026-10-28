@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import os
 from datetime import datetime, timezone
 
@@ -29,6 +30,17 @@ PROMO_GRID_SELECTORS = (
 )
 
 
+HEADLINE_SELECTORS = (
+    '[class*="-PromoHeadline"]',
+    '[type="headline"]',
+    '[class*="-Headline"]',
+)
+
+# Screen-reader-only labels repeat the headline with media details ("Video, 00:01:08") or
+# prefix live pages with "Live. ", so they are removed before reading a title.
+HIDDEN_TEXT_SELECTOR = '.visually-hidden, [class*="VisuallyHidden"]'
+
+
 class ScrapeValidationError(RuntimeError):
     """Raised when the BBC response no longer satisfies the collection contract."""
 
@@ -40,6 +52,34 @@ def _select_first(soup: BeautifulSoup, selectors: tuple[str, ...]):
     return None
 
 
+def visible_text(node) -> str:
+    visible = copy.copy(node)
+    for hidden in visible.select(HIDDEN_TEXT_SELECTOR):
+        hidden.decompose()
+    return visible.get_text(" ", strip=True)
+
+
+def headline_text(link) -> str:
+    for selector in HEADLINE_SELECTORS:
+        if headline := link.select_one(selector):
+            return visible_text(headline)
+    return visible_text(link)
+
+
+def decode_homepage(content: bytes, content_type: str) -> str:
+    """Decode the homepage as UTF-8 unless the response declares another charset.
+
+    BBC News serves `text/html` without a charset, which makes requests fall back to Latin-1
+    and turns characters such as "£" and "á" into "Â£" and "Ã¡".
+    """
+
+    for parameter in content_type.split(";")[1:]:
+        name, _, value = parameter.strip().partition("=")
+        if name.lower() == "charset" and value:
+            return content.decode(value.strip('"'), errors="replace")
+    return content.decode("utf-8", errors="replace")
+
+
 def scrape_most_read(soup: BeautifulSoup, limit: int = 10) -> list[dict[str, object]]:
     container = _select_first(soup, MOST_READ_SELECTORS)
     if container is None:
@@ -49,7 +89,7 @@ def scrape_most_read(soup: BeautifulSoup, limit: int = 10) -> list[dict[str, obj
         link = item.find("a")
         if not link or not link.get("href"):
             continue
-        title = link.get_text(" ", strip=True)
+        title = headline_text(link)
         if title:
             stories.append({"position": position, "title": title, "url": link["href"]})
     return stories
@@ -64,10 +104,9 @@ def scrape_front_page_promos(soup: BeautifulSoup, limit: int = 10) -> list[dict[
         href = link.get("href")
         if not href or href in seen_urls:
             continue
-        headline = link.select_one('[class*="-PromoHeadline"]')
-        if headline is None and link.parent is not None:
-            headline = link.parent.select_one('[class*="-PromoHeadline"]')
-        title = (headline or link).get_text(" ", strip=True)
+        title = headline_text(link)
+        if not title and link.parent is not None:
+            title = headline_text(link.parent)
         if not title:
             continue
         seen_urls.add(href)
@@ -123,7 +162,8 @@ def collect_homepage(
         )
         status = response.status_code
         response.raise_for_status()
-        observations = parse_homepage(response.text, observed_at)
+        html = decode_homepage(response.content, response.headers.get("Content-Type", ""))
+        observations = parse_homepage(html, observed_at)
         counts = {
             surface: sum(item.surface == surface for item in observations)
             for surface in ("most_read", "front_page")
