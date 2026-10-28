@@ -58,6 +58,11 @@ hashes, and the source Git commit.
 
 - This records two BBC web surfaces, not editorial intent, readership, or all BBC output.
 - Layout and selector changes can cause gaps. New runs fail closed if either surface is empty.
+- Collection was switched off from 2026-09-17 11:33 UTC until 2026-10-27 20:02 UTC. There are no
+  observations, article snapshots, or semantic labels for that period, and it cannot be backfilled.
+- From 2026-08-27 until 2026-10-28, GitHub's scheduler ran hourly collection only every three to six
+  hours (about 2–7 captures a day). Normalize counts by successful scrapes in `scrape_runs` before
+  comparing that period with hourly collection.
 - The legacy article writer accidentally stored the URL in `first_appeared_at`; migration repairs
   it from the earliest matching observation when available.
 - Front-page promos had no explicit rank historically, so their position is reconstructed from row

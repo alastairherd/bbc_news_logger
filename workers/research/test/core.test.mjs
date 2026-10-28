@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InputError, deepSeekRequest, normalizeRequest, parseCompletion } from "../src/core.mjs";
+import { InputError, deepSeekRequest, isPeakPricing, normalizeRequest, parseCompletion } from "../src/core.mjs";
+import { COLLECTION_DISPATCH_URL, dispatchCollection } from "../src/schedule.mjs";
 
 const row = {
   title: "Talks resume after summit",
@@ -32,7 +33,7 @@ test("normalization accepts only bounded unique BBC evidence", () => {
 
 test("DeepSeek request defaults to bounded non-thinking mode", () => {
   const body = deepSeekRequest("What changed?", [{ ...row, id: 1 }]);
-  assert.equal(body.model, "deepseek-v4-flash");
+  assert.equal(body.model, "deepseek-flash");
   assert.deepEqual(body.thinking, { type: "disabled" });
   assert.equal(body.max_tokens, 900);
   assert.match(body.messages[0].content, /Never turn correlation, allegation, or concern into proven causation/);
@@ -48,8 +49,16 @@ test("DeepSeek request supports bounded high and maximum reasoning", () => {
   assert.equal(maximum.max_tokens, 5000);
 });
 
+test("peak pricing covers weekday UTC windows only", () => {
+  assert.equal(isPeakPricing(new Date("2026-10-28T00:59:00Z")), false);
+  assert.equal(isPeakPricing(new Date("2026-10-28T01:00:00Z")), true);
+  assert.equal(isPeakPricing(new Date("2026-10-28T04:00:00Z")), false);
+  assert.equal(isPeakPricing(new Date("2026-10-28T09:59:00Z")), true);
+  assert.equal(isPeakPricing(new Date("2026-10-31T02:00:00Z")), false);
+});
+
 test("completion parsing removes invented citations and calculates cost", () => {
-  const value = parseCompletion({
+  const completion = {
     choices: [{ message: { content: JSON.stringify({
       answer: "Talks resumed [1].",
       findings: [
@@ -59,7 +68,29 @@ test("completion parsing removes invented citations and calculates cost", () => 
       limitations: "One report.",
     }) } }],
     usage: { prompt_tokens: 100, prompt_cache_miss_tokens: 100, completion_tokens: 30 },
-  }, 1);
+  };
+  const value = parseCompletion(completion, 1, "off", new Date("2026-10-31T12:00:00Z"));
   assert.deepEqual(value.findings, [{ claim: "Talks resumed.", sources: [1] }]);
-  assert.ok(Math.abs(value.usage.costUsd - 0.0000224) < 1e-12);
+  assert.ok(Math.abs(value.usage.costUsd - 0.000033) < 1e-12);
+  const peak = parseCompletion(completion, 1, "off", new Date("2026-10-28T02:00:00Z"));
+  assert.ok(Math.abs(peak.usage.costUsd - 0.000066) < 1e-12);
+});
+
+test("scheduled collection dispatches the scrape workflow on main", async () => {
+  const calls = [];
+  const fakeFetch = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(null, { status: 204 });
+  };
+  assert.equal(await dispatchCollection("token-value", fakeFetch), true);
+  assert.equal(calls[0].url, COLLECTION_DISPATCH_URL);
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer token-value");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { ref: "main" });
+});
+
+test("scheduled collection reports missing tokens and GitHub errors", async () => {
+  assert.equal(await dispatchCollection("", async () => assert.fail("must not call GitHub")), false);
+  const denied = async () => new Response("Bad credentials", { status: 401 });
+  await assert.rejects(dispatchCollection("token-value", denied), /HTTP 401: Bad credentials/);
 });

@@ -285,3 +285,44 @@ def test_clustering_does_not_merge_a_transitive_similarity_chain() -> None:
 
     assert clusters["hash-a"] == clusters["hash-b"]
     assert clusters["hash-c"] != clusters["hash-a"]
+
+
+@pytest.mark.parametrize("allow_peak", [False, True])
+def test_enrichment_defers_paid_requests_during_peak_pricing(
+    monkeypatch, tmp_path, allow_peak: bool
+) -> None:
+    from services.fenic import enrich as enrichment
+
+    now = datetime.now(timezone.utc)
+    articles = pa.Table.from_pylist([_article("hash-a", "Talks", now)], schema=ARTICLE_SCHEMA)
+    monkeypatch.setattr(
+        enrichment,
+        "download_dataset_tables",
+        lambda *_args, **_kwargs: {"data/article_snapshots": articles, "semantic/signals": None},
+    )
+    monkeypatch.setattr(enrichment, "is_peak_pricing", lambda _moment: True)
+    requests: list[object] = []
+
+    def fake_request(_client, batch):
+        requests.append(batch)
+        raise RuntimeError("stop after the request is attempted")
+
+    monkeypatch.setattr(enrichment, "_request", fake_request)
+
+    report = enrichment.enrich(
+        limit=0,
+        batch_size=8,
+        concurrency=1,
+        checkpoint_path=tmp_path / "checkpoint.sqlite3",
+        output_dir=tmp_path / "shards",
+        maximum_cost_usd=enrichment.MAX_RUN_BUDGET_USD,
+        scope="monthly",
+        publish=False,
+        retry_failures=False,
+        dataset_id="example/dataset",
+        client=object(),
+        allow_peak=allow_peak,
+    )
+
+    assert report.stopped_for_peak is not allow_peak
+    assert len(requests) == (1 if allow_peak else 0)

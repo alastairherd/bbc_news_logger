@@ -16,6 +16,7 @@ from bbc_news_logger.deepseek import (
     DeepSeekClient,
     DeepSeekError,
     RunBudget,
+    is_peak_pricing,
     maximum_request_cost_usd,
     parse_signal_batch,
     parse_signals,
@@ -64,13 +65,30 @@ def signal_json() -> str:
     )
 
 
-def test_token_cost_uses_v4_flash_rates() -> None:
-    cost = token_cost_usd(
-        cache_hit_input_tokens=1_000_000,
-        cache_miss_input_tokens=1_000_000,
-        output_tokens=1_000_000,
-    )
-    assert cost == Decimal("0.4228")
+def test_token_cost_uses_v4_1_flash_rates() -> None:
+    counts = {
+        "cache_hit_input_tokens": 1_000_000,
+        "cache_miss_input_tokens": 1_000_000,
+        "output_tokens": 1_000_000,
+    }
+    assert token_cost_usd(**counts, peak=False) == Decimal("0.753")
+    assert token_cost_usd(**counts) == Decimal("1.506")
+
+
+@pytest.mark.parametrize(
+    ("moment", "expected"),
+    [
+        (datetime(2026, 10, 28, 0, 59, tzinfo=timezone.utc), False),
+        (datetime(2026, 10, 28, 1, 0, tzinfo=timezone.utc), True),
+        (datetime(2026, 10, 28, 3, 59, tzinfo=timezone.utc), True),
+        (datetime(2026, 10, 28, 4, 0, tzinfo=timezone.utc), False),
+        (datetime(2026, 10, 28, 9, 30, tzinfo=timezone.utc), True),
+        (datetime(2026, 10, 28, 10, 0, tzinfo=timezone.utc), False),
+        (datetime(2026, 10, 31, 2, 17, tzinfo=timezone.utc), False),
+    ],
+)
+def test_peak_pricing_covers_weekday_utc_windows(moment: datetime, expected: bool) -> None:
+    assert is_peak_pricing(moment) is expected
 
 
 def test_run_budget_cannot_be_raised_above_one_dollar() -> None:
@@ -97,6 +115,21 @@ def test_persisted_checkpoint_spend_is_deduplicated_for_the_budget_ledger() -> N
     assert recorded_scope_spend([row, dict(row), second], "backfill") == Decimal("0.004")
 
 
+def test_legacy_v4_flash_spend_remains_in_the_budget_ledger() -> None:
+    legacy = {
+        "content_sha256": "hash-a",
+        "model": "deepseek-v4-flash",
+        "prompt_version": "v1",
+        "deepseek_response_id": "response-a",
+        "generated_at": datetime.now(timezone.utc),
+        "request_cost_usd": 0.002,
+    }
+    current = {**legacy, "model": DEEPSEEK_MODEL, "deepseek_response_id": "response-b"}
+    unrelated = {**legacy, "model": "other-model", "deepseek_response_id": "response-c"}
+
+    assert recorded_scope_spend([legacy, current, unrelated], "backfill") == Decimal("0.004")
+
+
 def test_input_is_truncated_on_utf8_boundary() -> None:
     value = truncate_utf8("é" * MAX_INPUT_BYTES)
     assert len(value.encode("utf-8")) <= MAX_INPUT_BYTES
@@ -104,7 +137,7 @@ def test_input_is_truncated_on_utf8_boundary() -> None:
 
 
 def test_worst_case_request_is_small_enough_for_bounded_batches() -> None:
-    assert maximum_request_cost_usd("x" * (MAX_INPUT_BYTES * 2)) < Decimal("0.01")
+    assert maximum_request_cost_usd("x" * (MAX_INPUT_BYTES * 2)) < Decimal("0.02")
 
 
 def test_signal_parser_rejects_uncontrolled_topics() -> None:
@@ -152,7 +185,8 @@ def test_usage_parser_accounts_for_cache_hits() -> None:
     )
     assert usage.prompt_cache_hit_tokens == 750
     assert usage.prompt_cache_miss_tokens == 250
-    assert usage.cost_usd == Decimal("0.0000651")
+    assert usage.cost_usd == Decimal("0.0001995")
+    assert parse_usage({"completion_tokens": 100}, peak=False).cost_usd == Decimal("0.00006")
 
 
 def test_client_disables_thinking_and_caps_output() -> None:

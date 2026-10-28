@@ -1,4 +1,5 @@
-import { InputError, deepSeekRequest, normalizeRequest, parseCompletion } from "./core.mjs";
+import { InputError, MODEL, deepSeekRequest, normalizeRequest, parseCompletion } from "./core.mjs";
+import { dispatchCollection } from "./schedule.mjs";
 
 const ALLOWED_ORIGINS = new Set([
   "https://alastairherd.github.io",
@@ -50,7 +51,7 @@ export default {
       return new Response(null, { status: ALLOWED_ORIGINS.has(origin) ? 204 : 403, headers: headers(origin) });
     }
     if (request.method === "GET" && url.pathname === "/api/health") {
-      return json({ status: "ok", model: "deepseek-v4-flash", runtime: "cloudflare-workers", reasoningModes: ["off", "high", "max"] }, 200, origin);
+      return json({ status: "ok", model: MODEL, runtime: "cloudflare-workers", reasoningModes: ["off", "high", "max"] }, 200, origin);
     }
     if (request.method !== "POST" || url.pathname !== "/api/research") {
       return json({ detail: "Not found." }, 404, origin);
@@ -95,5 +96,9 @@ export default {
     } catch (error) {
       return json({ detail: String(error?.message ?? "DeepSeek could not answer from the archive.").slice(0, 500) }, 502, origin);
     }
+  },
+
+  async scheduled(_controller, env, context) {
+    context.waitUntil(dispatchCollection(env.DISPATCH_TOKEN));
   },
 };

@@ -12,7 +12,10 @@ from typing import Any
 import requests
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = "deepseek-flash"
+# The retired V4 Flash ID now routes to V4.1 Flash. Rows recorded under it remain complete and
+# stay in the spend ledger, so the model switch neither relabels the archive nor resets budgets.
+DEEPSEEK_MODEL_FAMILY = frozenset({DEEPSEEK_MODEL, "deepseek-v4-flash"})
 MAX_RUN_BUDGET_USD = Decimal("1.00")
 MAX_INPUT_BYTES = 32_000
 MAX_OUTPUT_TOKENS = 320
@@ -20,10 +23,13 @@ MAX_BATCH_SIZE = 8
 REQUEST_OVERHEAD_TOKEN_ALLOWANCE = 1_024
 PROMPT_VERSION = "2026-07-13-v1"
 
-# DeepSeek V4 Flash prices in USD per million tokens, published 13 July 2026.
-INPUT_CACHE_HIT_USD_PER_MILLION = Decimal("0.0028")
-INPUT_CACHE_MISS_USD_PER_MILLION = Decimal("0.14")
-OUTPUT_USD_PER_MILLION = Decimal("0.28")
+# DeepSeek V4.1 Flash off-peak prices in USD per million tokens, as reported October 2026.
+INPUT_CACHE_HIT_USD_PER_MILLION = Decimal("0.003")
+INPUT_CACHE_MISS_USD_PER_MILLION = Decimal("0.15")
+OUTPUT_USD_PER_MILLION = Decimal("0.60")
+# Weekday peak windows in UTC bill at double the off-peak rates.
+PEAK_HOURS_UTC = ((1, 4), (6, 10))
+PEAK_PRICE_MULTIPLIER = Decimal("2")
 MILLION = Decimal("1000000")
 
 ALLOWED_TOPICS = {
@@ -111,6 +117,7 @@ class TokenUsage:
     prompt_cache_hit_tokens: int
     prompt_cache_miss_tokens: int
     completion_tokens: int
+    peak: bool = True
 
     @property
     def cost_usd(self) -> Decimal:
@@ -118,6 +125,7 @@ class TokenUsage:
             cache_hit_input_tokens=self.prompt_cache_hit_tokens,
             cache_miss_input_tokens=self.prompt_cache_miss_tokens,
             output_tokens=self.completion_tokens,
+            peak=self.peak,
         )
 
 
@@ -179,7 +187,7 @@ def recorded_scope_spend(rows: Sequence[dict[str, Any]], scope: str) -> Decimal:
             str(row.get("prompt_version") or ""),
             str(row.get("deepseek_response_id") or ""),
         )
-        if not content_hash or identity in seen or row.get("model") != DEEPSEEK_MODEL:
+        if not content_hash or identity in seen or row.get("model") not in DEEPSEEK_MODEL_FAMILY:
             continue
         generated = row.get("generated_at")
         if scope == "monthly" and (
@@ -190,16 +198,31 @@ def recorded_scope_spend(rows: Sequence[dict[str, Any]], scope: str) -> Decimal:
         total += Decimal(str(row.get("request_cost_usd") or 0))
     return total
 
-def token_cost_usd(
-    *, cache_hit_input_tokens: int, cache_miss_input_tokens: int, output_tokens: int
-) -> Decimal:
-    """Calculate V4 Flash cost from the token counters returned by DeepSeek."""
+def is_peak_pricing(moment: datetime) -> bool:
+    moment = moment.astimezone(timezone.utc)
+    return moment.weekday() < 5 and any(
+        start <= moment.hour < end for start, end in PEAK_HOURS_UTC
+    )
 
-    return (
+
+def token_cost_usd(
+    *,
+    cache_hit_input_tokens: int,
+    cache_miss_input_tokens: int,
+    output_tokens: int,
+    peak: bool = True,
+) -> Decimal:
+    """Calculate V4.1 Flash cost from the token counters returned by DeepSeek.
+
+    Peak pricing is the default so that callers without a request time never undercount.
+    """
+
+    cost = (
         Decimal(cache_hit_input_tokens) * INPUT_CACHE_HIT_USD_PER_MILLION
         + Decimal(cache_miss_input_tokens) * INPUT_CACHE_MISS_USD_PER_MILLION
         + Decimal(output_tokens) * OUTPUT_USD_PER_MILLION
     ) / MILLION
+    return cost * PEAK_PRICE_MULTIPLIER if peak else cost
 
 
 def truncate_utf8(text: str, maximum_bytes: int = MAX_INPUT_BYTES) -> str:
@@ -326,7 +349,7 @@ def parse_signal_batch(
     return tuple((article_id, by_id[article_id]) for article_id in expected_ids)
 
 
-def parse_usage(value: dict[str, Any]) -> TokenUsage:
+def parse_usage(value: dict[str, Any], *, peak: bool = True) -> TokenUsage:
     prompt_tokens = int(value.get("prompt_tokens", 0))
     details = value.get("prompt_tokens_details") or {}
     cache_hit = int(
@@ -343,6 +366,7 @@ def parse_usage(value: dict[str, Any]) -> TokenUsage:
         prompt_cache_hit_tokens=cache_hit,
         prompt_cache_miss_tokens=cache_miss,
         completion_tokens=int(value.get("completion_tokens", 0)),
+        peak=peak,
     )
 
 
@@ -364,8 +388,11 @@ class DeepSeekClient:
 
     def _complete(
         self, *, system_prompt: str, user_content: str, max_tokens: int
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], bool]:
+        """Return the completion payload and whether peak pricing could apply to it."""
+
         http = self.session or requests
+        started_at = datetime.now(timezone.utc)
         response = http.post(
             DEEPSEEK_API_URL,
             headers={
@@ -385,6 +412,8 @@ class DeepSeekClient:
             },
             timeout=(10, self.timeout_seconds),
         )
+        # A request that straddles a window boundary is charged at the higher rate.
+        peak = is_peak_pricing(started_at) or is_peak_pricing(datetime.now(timezone.utc))
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -402,17 +431,17 @@ class DeepSeekClient:
             raise DeepSeekError("DeepSeek returned a non-JSON completion response") from exc
         if not isinstance(payload, dict):
             raise DeepSeekError("DeepSeek returned a non-object completion response")
-        return payload
+        return payload, peak
 
     def enrich(self, article: str) -> DeepSeekResult:
-        payload = self._complete(
+        payload, peak = self._complete(
             system_prompt=SYSTEM_PROMPT,
             user_content=truncate_utf8(article),
             max_tokens=MAX_OUTPUT_TOKENS,
         )
         try:
             content = payload["choices"][0]["message"]["content"]
-            usage = parse_usage(payload["usage"])
+            usage = parse_usage(payload["usage"], peak=peak)
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise DeepSeekError("DeepSeek returned an incomplete completion response") from exc
         return DeepSeekResult(
@@ -436,14 +465,14 @@ class DeepSeekClient:
             },
             ensure_ascii=False,
         )
-        payload = self._complete(
+        payload, peak = self._complete(
             system_prompt=BATCH_SYSTEM_PROMPT,
             user_content=user_content,
             max_tokens=MAX_OUTPUT_TOKENS * len(articles),
         )
         try:
             content = payload["choices"][0]["message"]["content"]
-            usage = parse_usage(payload["usage"])
+            usage = parse_usage(payload["usage"], peak=peak)
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise DeepSeekError("DeepSeek returned an incomplete batch response") from exc
         return DeepSeekBatchResult(

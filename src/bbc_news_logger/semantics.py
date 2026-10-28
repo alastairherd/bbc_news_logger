@@ -9,7 +9,7 @@ import os
 import sqlite3
 import tempfile
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -139,14 +139,14 @@ def embedding_text(article: dict[str, Any]) -> str:
 
 
 def completed_hashes(
-    table: pa.Table | None, *, model: str, version_field: str, version: str
+    table: pa.Table | None, *, models: Collection[str], version_field: str, version: str
 ) -> set[str]:
     if table is None:
         return set()
     return {
         str(row["content_sha256"])
         for row in table.to_pylist()
-        if row.get("model") == model and row.get(version_field) == version
+        if row.get("model") in models and row.get(version_field) == version
     }
 
 
@@ -398,7 +398,7 @@ def run_embedding_refresh(
     articles = unique_article_rows(articles_table)
     done = completed_hashes(
         tables[EMBEDDING_PREFIX],
-        model=EMBEDDING_MODEL,
+        models=(EMBEDDING_MODEL,),
         version_field="input_version",
         version=EMBEDDING_INPUT_VERSION,
     )

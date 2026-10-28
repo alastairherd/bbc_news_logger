@@ -25,7 +25,7 @@ BBC's terms and copyright.
 
 ### Ask the archive
 
-“Ask the archive” retrieves up to twenty relevant articles with BGE Small and can ask DeepSeek V4
+“Ask the archive” retrieves up to twenty relevant articles with BGE Small and can ask DeepSeek V4.1
 Flash to produce a cited synthesis. Every generated finding links back to numbered BBC evidence so
 the source material remains inspectable.
 
@@ -135,6 +135,12 @@ batch. The dataset cards document the complete schemas and the audited historica
   personalization, or every BBC property.
 - Scheduled jobs and page-structure changes can create visible gaps. Failed validation publishes no
   partial observation batch.
+- Collection was switched off from 17 September 2026 (last capture 11:33 UTC) until 27 October 2026
+  (resumed 20:02 UTC). That period has no observations, article snapshots, or semantic labels, and
+  it cannot be backfilled.
+- From 27 August 2026 until 28 October 2026, GitHub's scheduler ran the hourly collection only
+  every three to six hours, giving about 2–7 captures a day instead of 24. Counts from that period
+  are not comparable with hourly periods without normalizing by the number of successful scrapes.
 
 See the [versioned methodology](https://alastairherd.github.io/bbc_news_logger/methodology/) for the
 full data contract, migration repairs, clustering thresholds, and limitations.
@@ -186,9 +192,9 @@ uv run bbc-news compact-dataset --publish
 
 | Workflow | Schedule or trigger | Result |
 | --- | --- | --- |
-| Collect BBC News observations | Hourly at `:07` | Validates both surfaces and publishes observations and run metadata |
+| Collect BBC News observations | Hourly at `:07`, dispatched by a Cloudflare cron | Validates both surfaces and publishes observations and run metadata |
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global rate limit |
-| Refresh semantic analysis | After article collection | Embeds and labels new content hashes, checkpoints progress, and refreshes clusters |
+| Refresh semantic analysis | Daily at `12:23 UTC` | Embeds and labels new content hashes in DeepSeek's off-peak window, checkpoints progress, and refreshes clusters |
 | Compact the dataset | Weekly | Atomically folds incremental Parquet shards into compact bases |
 | Deploy the analyser | Every three hours and relevant pushes | Rebuilds public marts and deploys GitHub Pages |
 | Deploy the research Worker | Relevant Worker changes | Publishes the bounded DeepSeek synthesis endpoint |
@@ -238,6 +244,10 @@ Paid labelling enforces a `$1.00` process ceiling, `$7.50` historical ceiling, a
 incremental ceiling. Ambiguous failures are recorded without automatic paid retries. Unpublished
 checkpoint rows remain part of the cumulative spend ledger.
 
+DeepSeek bills double on weekdays from 01:00 to 04:00 and 06:00 to 10:00 UTC. Labelling defers any
+remaining work when a peak window starts, unless `--allow-peak` is passed to the script or selected
+when running the workflow manually.
+
 The `Refresh semantic analysis` workflow can run the BGE backlog on a GitHub-hosted CPU runner.
 Uploaded 256-vector checkpoints make timed-out runs resumable without repeating completed work.
 
@@ -245,6 +255,10 @@ Uploaded 256-vector checkpoints make timed-out runs resumable without repeating 
 
 - Dataset publication uses the `HF_TOKEN` GitHub secret.
 - Worker deployment uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+- Hourly collection is started by the research Worker's cron trigger, because GitHub drops many
+  scheduled runs. The Worker receives `DISPATCH_TOKEN`, a GitHub token that can dispatch Actions
+  workflows in this repository. The GitHub schedule remains as a fallback and skips itself when a
+  dispatch ran in the previous 50 minutes.
 - Pages reads the synthesis endpoint from the `PUBLIC_RESEARCH_API_URL` repository variable.
 
 </details>

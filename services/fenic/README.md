@@ -34,10 +34,10 @@ existing `DEEPSEEK_API` name. Authenticate this machine with `hf auth login`, or
 before publishing. Use `./scripts/refresh_semantics.sh 200 --local-only` to build and inspect output
 under `dist/` without uploading it.
 
-It calls DeepSeek's native OpenAI-compatible API with `deepseek-v4-flash`, validates the JSON, and
-then stores the typed result in Fenic. This boundary is intentional because Fenic 0.10 does not have
-a first-class DeepSeek model provider. Fenic still owns the catalog, Parquet output, SQL analysis,
-and MCP tools.
+It calls DeepSeek's native OpenAI-compatible API with `deepseek-flash` (V4.1 Flash), validates the
+JSON, and then stores the typed result in Fenic. This boundary is intentional because Fenic 0.10 does
+not have a first-class DeepSeek model provider. Fenic still owns the catalog, Parquet output, SQL
+analysis, and MCP tools.
 
 Each result includes topic, reusable themes, summary, entities, event label/type, and story form.
 Thinking is disabled, each article input is capped at 32,000 UTF-8 bytes, and up to eight articles

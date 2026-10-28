@@ -4,6 +4,7 @@ set -euo pipefail
 limit=200
 publish=true
 scope=backfill
+allow_peak=false
 
 for argument in "$@"; do
   case "$argument" in
@@ -12,6 +13,9 @@ for argument in "$@"; do
       ;;
     --monthly)
       scope=monthly
+      ;;
+    --allow-peak)
+      allow_peak=true
       ;;
     *)
       limit="$argument"
@@ -49,6 +53,9 @@ arguments=(
 )
 if [[ "$publish" == true ]]; then
   arguments+=(--publish)
+fi
+if [[ "$allow_peak" == true ]]; then
+  arguments+=(--allow-peak)
 fi
 
 uv run --no-sync python -m services.fenic.enrich "${arguments[@]}"

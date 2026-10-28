@@ -7,6 +7,7 @@ import json
 import os
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -16,12 +17,14 @@ import pyarrow as pa
 from bbc_news_logger.config import DEFAULT_DATASET_ID
 from bbc_news_logger.deepseek import (
     DEEPSEEK_MODEL,
+    DEEPSEEK_MODEL_FAMILY,
     MAX_BATCH_SIZE,
     MAX_RUN_BUDGET_USD,
     PROMPT_VERSION,
     DeepSeekBatchResult,
     DeepSeekClient,
     RunBudget,
+    is_peak_pricing,
     maximum_batch_request_cost_usd,
     recorded_scope_spend,
 )
@@ -57,6 +60,7 @@ class EnrichmentReport:
     failures: int
     remaining: int
     stopped_for_budget: bool
+    stopped_for_peak: bool
     publish_deferred: bool
 
 
@@ -119,6 +123,7 @@ def enrich(
     retry_failures: bool,
     dataset_id: str,
     client: DeepSeekClient,
+    allow_peak: bool = False,
 ) -> EnrichmentReport:
     tables = download_dataset_tables(
         ["data/article_snapshots", SIGNAL_PREFIX], dataset_id=dataset_id
@@ -132,7 +137,7 @@ def enrich(
     try:
         remote_done = completed_hashes(
             signal_table,
-            model=DEEPSEEK_MODEL,
+            models=DEEPSEEK_MODEL_FAMILY,
             version_field="prompt_version",
             version=PROMPT_VERSION,
         )
@@ -208,9 +213,21 @@ def enrich(
         failure_count = 0
         rows_waiting_for_publish: list[dict[str, Any]] = []
         stopped_for_budget = process_cap <= 0 and bool(pending_batches)
+        stopped_for_peak = False
         budget = RunBudget(process_cap) if process_cap > 0 else None
 
         while pending_batches and budget is not None:
+            # Peak windows bill at double rates, so defer the rest of the backlog to a later run.
+            if not allow_peak and is_peak_pricing(datetime.now(timezone.utc)):
+                stopped_for_peak = True
+                print(
+                    json.dumps(
+                        {"event": "deepseek_deferred_for_peak", "remaining": len(pending_batches)},
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+                break
             wave: list[tuple[list[dict[str, Any]], Decimal]] = []
             available = budget.remaining_usd
             while pending_batches and len(wave) < concurrency:
@@ -322,6 +339,7 @@ def enrich(
             failures=failure_count,
             remaining=max(0, len(candidates) - rows_added),
             stopped_for_budget=stopped_for_budget,
+            stopped_for_peak=stopped_for_peak,
             publish_deferred=publish_deferred,
         )
     finally:
@@ -354,6 +372,11 @@ def main() -> None:
         default=_budget(os.getenv("DEEPSEEK_MAX_COST_USD", str(MAX_RUN_BUDGET_USD))),
     )
     parser.add_argument("--publish", action="store_true")
+    parser.add_argument(
+        "--allow-peak",
+        action="store_true",
+        help="Send requests during DeepSeek's weekday peak-price windows",
+    )
     args = parser.parse_args()
     if args.limit < 0:
         raise SystemExit("--limit cannot be negative; use 0 for all remaining articles")
@@ -377,6 +400,7 @@ def main() -> None:
         retry_failures=args.retry_failures,
         dataset_id=args.dataset,
         client=DeepSeekClient(token),
+        allow_peak=args.allow_peak,
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(asdict(report), indent=2) + "\n")

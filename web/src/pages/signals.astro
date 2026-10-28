@@ -386,7 +386,7 @@ Every substantive claim must cite at least one supplied source. Do not invent so
         method: "POST",
         headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "deepseek-v4-flash",
+          model: "deepseek-flash",
           messages: [
             { role: "system", content: directSystemPrompt },
             { role: "user", content: JSON.stringify({ question: query.slice(0, 400), evidence: evidence.slice(0, 20) }) },
@@ -410,12 +410,16 @@ Every substantive claim must cite at least one supplied source. Do not invent so
       const usage = payload.usage ?? {};
       const cacheHit = Number(usage.prompt_cache_hit_tokens ?? 0);
       const cacheMiss = Number(usage.prompt_cache_miss_tokens ?? Math.max(0, Number(usage.prompt_tokens ?? 0) - cacheHit));
+      // V4.1 Flash bills double in weekday peak windows (01:00–04:00 and 06:00–10:00 UTC).
+      const now = new Date();
+      const hour = now.getUTCHours();
+      const peak = now.getUTCDay() >= 1 && now.getUTCDay() <= 5 && ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10));
       return {
         answer: String(content.answer), findings, limitations: String(content.limitations ?? ""),
-        model: "deepseek-v4-flash · your key", cached: false, reasoning,
+        model: "deepseek-flash · your key", cached: false, reasoning,
         usage: {
           promptTokens: Number(usage.prompt_tokens ?? 0), completionTokens: Number(usage.completion_tokens ?? 0),
-          costUsd: (cacheHit * .0028 + cacheMiss * .14 + Number(usage.completion_tokens ?? 0) * .28) / 1_000_000,
+          costUsd: (peak ? 2 : 1) * (cacheHit * .003 + cacheMiss * .15 + Number(usage.completion_tokens ?? 0) * .6) / 1_000_000,
         },
       };
     }

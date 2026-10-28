@@ -19,9 +19,16 @@ on:
         required: false
         default: true
         type: boolean
-  workflow_run:
-    workflows: [Fetch daily article snapshots]
-    types: [completed]
+      allow_peak:
+        description: Send DeepSeek requests during weekday peak-price windows (double rates)
+        required: false
+        default: false
+        type: boolean
+  # DeepSeek bills double on weekdays 01:00-04:00 and 06:00-10:00 UTC. A midday start stays
+  # off-peak even when GitHub delays scheduled runs by several hours, and the enrichment step
+  # still defers any requests that would fall inside a peak window.
+  schedule:
+    - cron: "23 12 * * *"
 
 concurrency:
   group: bbc-news-semantics
@@ -32,7 +39,6 @@ permissions:
 
 jobs:
   refresh:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -40,6 +46,7 @@ jobs:
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.DEEPSEEK_API }}
       SEMANTIC_LIMIT: ${{ inputs.limit || '500' }}
       SEMANTIC_SCOPE: ${{ inputs.scope || 'monthly' }}
+      ALLOW_PEAK: ${{ inputs.allow_peak && '--allow-peak' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.3.2
@@ -69,7 +76,7 @@ jobs:
             --batch-size 8 \
             --concurrency 4 \
             --scope "$SEMANTIC_SCOPE" \
-            --publish
+            --publish $ALLOW_PEAK
       - name: Rebuild recurring-story clusters
         if: ${{ always() && !cancelled() }}
         shell: bash

@@ -27,7 +27,7 @@ jobs:
       - name: Test Worker contract
         working-directory: workers/research
         run: npm test
-      - name: Deploy Worker and encrypted DeepSeek key
+      - name: Deploy Worker with encrypted DeepSeek and collection-dispatch keys
         id: deploy
         if: env.CF_API_TOKEN != '' && env.CF_ACCOUNT_ID != ''
         uses: cloudflare/wrangler-action@v3
@@ -39,8 +39,10 @@ jobs:
           command: deploy
           secrets: |
             DEEPSEEK_API_KEY
+            DISPATCH_TOKEN
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY || secrets.DEEPSEEK_API }}
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
       - name: Explain skipped deployment
         if: env.CF_API_TOKEN == '' || env.CF_ACCOUNT_ID == ''
         run: echo "::notice::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to deploy the tested Worker."
