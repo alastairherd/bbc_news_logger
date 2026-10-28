@@ -13,6 +13,7 @@ import pyarrow.parquet as pq
 from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi, snapshot_download
 
 from .config import DEFAULT_DATASET_ID
+from .titles import repair_title
 
 COMPACTABLE_PREFIXES = (
     "data/observations",
@@ -64,8 +65,21 @@ def compact_table(prefix: str, files: Sequence[Path]) -> pa.Table:
     table = pa.concat_tables(
         [pq.ParquetFile(path).read() for path in files], promote_options="default"
     )
+    if prefix == "data/observations":
+        table = _repair_titles(table)
     timestamp = LATEST_BY_HASH.get(prefix)
     return _latest_by_hash(table, timestamp) if timestamp else table
+
+
+def _repair_titles(table: pa.Table) -> pa.Table:
+    """Fold headline repairs into the compact base so every reader sees the visible headline."""
+
+    index = table.schema.get_field_index("title")
+    titles = pa.array(
+        [repair_title(title) for title in table.column(index).to_pylist()],
+        type=table.schema.field(index).type,
+    )
+    return table.set_column(index, table.schema.field(index), titles)
 
 
 def compact_remote_dataset(
