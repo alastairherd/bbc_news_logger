@@ -113,6 +113,8 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     </section>
   </div>
   <script>
+    import { titleParts } from "../lib/titles";
+
     interface RankRow { observed_at: string; surface: "front_page" | "most_read"; position: number; title: string; url: string; story_id: string }
     interface DayRow { observed_date: string; front_page_stories: number; most_read_stories: number }
     interface MartManifest { generatedAt: string; latestObservationAt: string; observationCount: number; storyCount: number }
@@ -161,12 +163,6 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
       return truncated ? `Tracked ${span} or more` : `Tracked ${span}`;
     }
 
-    // Live pages are marked by their URL; titles captured before October 2026 also carry a "Live" prefix.
-    function titleParts(row: RankRow): { live: boolean; text: string } {
-      const match = row.title.match(/^live\s*[.:·\-–\u00a0\u00c2\s]+/i);
-      const text = match ? row.title.slice(match[0].length) : row.title;
-      return { live: Boolean(match) || /\/news\/live\//.test(row.url), text };
-    }
 
     function renderCapture(rows: RankRow[]) {
       const captures = [...new Set(rows.map((row) => row.observed_at))].sort();
@@ -197,10 +193,11 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
         if (otherPosition !== undefined) items.push(`<span class="marker-also">Also #${otherPosition} in ${SURFACE_NAME[other]}</span>`);
         const first = firstSeen.get(row.story_id) ?? latestAt;
         items.push(`<span>${tracked(new Date(first), latest, first === seriesStart && seriesStart !== latestAt)}</span>`);
+        items.push(`<span><a class="meta-link" href="${base}explore/?story=${encodeURIComponent(row.story_id)}">Archive record</a></span>`);
         return `<p class="story-meta">${items.join("")}</p>`;
       };
       const headline = (row: RankRow) => {
-        const { live, text } = titleParts(row);
+        const { live, text } = titleParts(row.title, row.url);
         return `<a href="${escape(row.url)}">${live ? `<span class="live-label">Live</span> ` : ""}${escape(text)}<span class="sr-only"> (opens BBC News)</span></a>`;
       };
 

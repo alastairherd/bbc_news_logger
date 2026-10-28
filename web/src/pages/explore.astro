@@ -7,66 +7,70 @@ import Layout from "../layouts/Layout.astro";
   description="Search story histories and compare BBC News front-page and Most Read appearances."
   current="explore"
 >
-  <div class="shell">
-    <header class="page-intro">
-      <div>
-        <p class="eyebrow">Story-level explorer</p>
-        <h1>Browse the evidence, without the endless scroll.</h1>
-      </div>
-      <p>Search title text, narrow by observed surface, and inspect fifteen stories at a time. Select one for its rank history, semantic summary, and related coverage. All times are UTC.</p>
-    </header>
+  <div class="page">
+    <div class="page-head">
+      <h1>Explore the archive</h1>
+      <p>Search every story captured on the BBC News front page and Most Read list. Times are UTC.</p>
+    </div>
 
-    <form class="toolbar" id="filters" role="search">
-      <div class="field">
-        <label for="query">Search titles</label>
-        <input id="query" name="query" type="search" placeholder="e.g. election, climate, Ukraine" autocomplete="off" />
+    <form class="filter-bar" id="filters" role="search">
+      <div class="filter-field filter-search">
+        <label for="query">Search headlines</label>
+        <span class="input-icon">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25" /><path d="m10.25 10.25 3.25 3.25" /></svg>
+          <input id="query" name="q" type="search" placeholder="Election, climate, Ukraine…" autocomplete="off" />
+        </span>
       </div>
-      <div class="field">
-        <label for="surface">Surface</label>
-        <select id="surface" name="surface">
-          <option value="all">Both surfaces</option>
+      <div class="filter-field">
+        <label for="surface">List</label>
+        <select id="surface" name="list">
+          <option value="all">Both lists</option>
           <option value="front_page">Front page</option>
           <option value="most_read">Most Read</option>
         </select>
       </div>
-      <div class="field">
-        <label for="order">Order</label>
-        <select id="order" name="order">
+      <div class="filter-field">
+        <label for="order">Sort by</label>
+        <select id="order" name="sort">
           <option value="recent">Most recent</option>
-          <option value="observed">Most observed</option>
-          <option value="rank">Best rank</option>
+          <option value="observed">Most captured</option>
+          <option value="rank">Best position</option>
         </select>
       </div>
+      <p id="result-summary" class="filter-count" aria-live="polite">Loading stories…</p>
     </form>
 
-    <div class="explorer" id="story-explorer">
-      <section class="story-list" aria-labelledby="story-list-heading">
-        <div class="table-meta">
-          <div><p class="eyebrow">Matching stories</p><h2 id="story-list-heading">Archive index</h2></div>
-          <p id="result-summary" aria-live="polite">Loading story mart…</p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <caption class="sr-only">Stories matching the selected filters</caption>
-            <thead><tr><th>Story</th><th>Surface</th><th>Best</th><th>Last seen</th></tr></thead>
-            <tbody id="story-rows"><tr><td class="loading" colspan="4">Loading story mart…</td></tr></tbody>
-          </table>
-        </div>
-        <nav class="pagination" aria-label="Story result pages">
-          <button class="button secondary" id="previous-page" type="button">← Previous</button>
+    <div id="load-error" class="error-panel" role="alert" hidden>
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" /><path d="M8 4.75v4M8 11v.25" /></svg>
+      <p><strong>Error:</strong> the story archive could not be loaded. Refresh the page to try again, or open the dataset on Hugging Face.</p>
+    </div>
+
+    <div class="archive">
+      <section class="archive-list" aria-labelledby="archive-heading">
+        <h2 id="archive-heading" class="sr-only">Matching stories</h2>
+        <ol id="story-rows" class="story-rows">
+          <li class="skeleton skeleton-list" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></li>
+        </ol>
+        <nav class="pager" aria-label="Result pages">
+          <button class="pager-button" id="previous-page" type="button" disabled>
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>Previous
+          </button>
           <span id="page-status">Page —</span>
-          <button class="button secondary" id="next-page" type="button">Next →</button>
+          <button class="pager-button" id="next-page" type="button" disabled>
+            Next<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg>
+          </button>
         </nav>
       </section>
-      <aside class="detail" id="story-detail" aria-live="polite">
-        <p class="eyebrow">Selected story</p>
-        <h2>Choose a row to inspect its history.</h2>
-        <p>The detail panel will show first and last sightings, best observed position, surfaces, and a rank trace for the last 30 days.</p>
+
+      <p id="detail-status" class="sr-only" role="status"></p>
+      <aside class="story-detail" id="story-detail" aria-labelledby="detail-heading">
+        <p class="empty">Choose a story to see its capture history, summary, and related coverage.</p>
       </aside>
     </div>
   </div>
 
   <script>
+    import { titleParts } from "../lib/titles";
     import SemanticSearchWorker from "../workers/semantic-search.worker?worker";
 
     interface Story {
@@ -79,14 +83,7 @@ import Layout from "../layouts/Layout.astro";
       best_position: number;
       surfaces: string[];
     }
-
-    interface RankPoint {
-      observed_at: string;
-      surface: string;
-      position: number;
-      story_id: string;
-    }
-
+    interface RankPoint { observed_at: string; surface: string; position: number; story_id: string }
     interface SemanticDocument {
       story_id: string;
       title: string;
@@ -100,35 +97,57 @@ import Layout from "../layouts/Layout.astro";
       event_type: string;
       named_entities: string[];
     }
-
     interface RelatedResult { document: SemanticDocument; score: number }
 
+    const SURFACE_NAME: Record<string, string> = { front_page: "Front page", most_read: "Most Read" };
+    const PAGE_SIZE = 15;
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
-    const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" });
+    const number = new Intl.NumberFormat("en-GB");
+    const shortDate = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+    const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+    const dateTime = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" });
     let stories: Story[] = [];
+    let storyById = new Map<string, Story>();
     let rankSeries: RankPoint[] = [];
     let selectedId: string | null = null;
     let semanticIndexReady = false;
     let relatedRequestId = 0;
     let currentPage = 0;
-    const pageSize = 15;
+    let lastDetail: { story: Story; semantic?: SemanticDocument; related: RelatedResult[]; analysed?: boolean } | null = null;
 
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
       return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
     };
-
     const input = (selector: string): HTMLInputElement | HTMLSelectElement => {
       const value = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
       if (!value) throw new Error(`Missing input: ${selector}`);
       return value;
     };
-
     const element = (selector: string): HTMLElement => {
       const value = document.querySelector<HTMLElement>(selector);
       if (!value) throw new Error(`Missing element: ${selector}`);
       return value;
     };
+    const externalIcon = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 4 12"/></svg>`;
+    function highlight(text: string): string {
+      const query = input("#query").value.trim();
+      if (!query) return escape(text);
+      const lower = text.toLocaleLowerCase();
+      const needle = query.toLocaleLowerCase();
+      let output = "";
+      let cursor = 0;
+      for (let index = lower.indexOf(needle); index !== -1; index = lower.indexOf(needle, cursor)) {
+        output += `${escape(text.slice(cursor, index))}<mark>${escape(text.slice(index, index + needle.length))}</mark>`;
+        cursor = index + needle.length;
+      }
+      return output + escape(text.slice(cursor));
+    }
+    const headline = (title: string, url: string) => {
+      const { live, text } = titleParts(title, url);
+      return `${live ? `<span class="live-label">Live</span> ` : ""}${highlight(text)}`;
+    };
+    const storyLink = (id: string) => `${base}explore/?story=${encodeURIComponent(id)}`;
 
     const semanticWorker = new SemanticSearchWorker();
     semanticWorker.postMessage({
@@ -138,130 +157,241 @@ import Layout from "../layouts/Layout.astro";
       loadModel: false,
     });
 
+    // Filters, page, and selected story live in the URL so any view can be shared.
+    function readUrl() {
+      const params = new URLSearchParams(location.search);
+      input("#query").value = params.get("q") ?? "";
+      input("#surface").value = ["front_page", "most_read"].includes(params.get("list") ?? "") ? params.get("list")! : "all";
+      input("#order").value = ["observed", "rank"].includes(params.get("sort") ?? "") ? params.get("sort")! : "recent";
+      currentPage = Math.max(0, Number.parseInt(params.get("page") ?? "1", 10) - 1 || 0);
+      return params.get("story");
+    }
+    function writeUrl(mode: "push" | "replace") {
+      const params = new URLSearchParams();
+      const query = input("#query").value.trim();
+      if (query) params.set("q", query);
+      if (input("#surface").value !== "all") params.set("list", input("#surface").value);
+      if (input("#order").value !== "recent") params.set("sort", input("#order").value);
+      if (currentPage > 0) params.set("page", String(currentPage + 1));
+      if (selectedId) params.set("story", selectedId);
+      const url = `${location.pathname}${params.size ? `?${params}` : ""}`;
+      if (url !== `${location.pathname}${location.search}`) history[mode === "push" ? "pushState" : "replaceState"](null, "", url);
+    }
+
     function visibleStories() {
       const query = input("#query").value.trim().toLocaleLowerCase();
       const surface = input("#surface").value;
       const order = input("#order").value;
-      const filtered = stories.filter((story) => (!query || story.title.toLocaleLowerCase().includes(query)) && (surface === "all" || story.surfaces.includes(surface)));
+      const filtered = stories.filter((story) => (!query || titleParts(story.title, story.url).text.toLocaleLowerCase().includes(query)) && (surface === "all" || story.surfaces.includes(surface)));
       filtered.sort((a, b) => {
         if (order === "observed") return b.observation_count - a.observation_count;
-        if (order === "rank") return a.best_position - b.best_position;
+        if (order === "rank") return a.best_position - b.best_position || String(b.last_seen).localeCompare(String(a.last_seen));
         return String(b.last_seen).localeCompare(String(a.last_seen));
       });
       return filtered;
     }
 
+    function listTags(surfaces: string[]) {
+      return surfaces.map((surface) => `<span class="list-tag list-${surface}">${SURFACE_NAME[surface] ?? escape(surface)}</span>`).join("");
+    }
+
     function renderRows() {
-      const tbody = element("#story-rows");
       const filtered = visibleStories();
-      const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+      const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
       currentPage = Math.min(currentPage, pageCount - 1);
-      const first = currentPage * pageSize;
-      const rows = filtered.slice(first, first + pageSize);
-      element("#result-summary").textContent = filtered.length ? `${(first + 1).toLocaleString("en-GB")}–${Math.min(first + pageSize, filtered.length).toLocaleString("en-GB")} of ${filtered.length.toLocaleString("en-GB")} stories` : "No matching stories";
-      element("#page-status").textContent = `Page ${(currentPage + 1).toLocaleString("en-GB")} of ${pageCount.toLocaleString("en-GB")}`;
-      const previous = document.querySelector<HTMLButtonElement>("#previous-page");
-      const next = document.querySelector<HTMLButtonElement>("#next-page");
-      if (previous) previous.disabled = currentPage === 0;
-      if (next) next.disabled = currentPage >= pageCount - 1 || !filtered.length;
-      tbody.innerHTML = rows.length ? rows.map((story) => `
-        <tr data-id="${story.story_id}" aria-selected="${story.story_id === selectedId}">
-          <td><button type="button" data-id="${story.story_id}">${escape(story.title)}</button><span class="muted">${story.observation_count.toLocaleString("en-GB")} observations</span></td>
-          <td>${story.surfaces.map((surface) => `<span class="pill">${surface === "front_page" ? "front" : "read"}</span>`).join(" ")}</td>
-          <td class="rank">#${story.best_position}</td>
-          <td class="timestamp">${escape(String(story.last_seen).slice(0, 10))}</td>
-        </tr>`).join("") : `<tr><td class="loading" colspan="4">No stories match those filters.</td></tr>`;
-      tbody.querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.addEventListener("click", () => {
-        if (button.dataset.id) selectStory(button.dataset.id);
-      }));
+      const first = currentPage * PAGE_SIZE;
+      const rows = filtered.slice(first, first + PAGE_SIZE);
+      element("#result-summary").textContent = filtered.length
+        ? `${number.format(first + 1)}–${number.format(Math.min(first + PAGE_SIZE, filtered.length))} of ${number.format(filtered.length)} stories`
+        : "No matching stories";
+      element("#page-status").textContent = `Page ${number.format(currentPage + 1)} of ${number.format(pageCount)}`;
+      element(".pager").hidden = !filtered.length;
+      (element("#previous-page") as HTMLButtonElement).disabled = currentPage === 0;
+      (element("#next-page") as HTMLButtonElement).disabled = currentPage >= pageCount - 1 || !filtered.length;
+      element("#story-rows").innerHTML = rows.length
+        ? rows.map((story) => `
+          <li><button type="button" class="story-row" data-id="${escape(story.story_id)}" aria-pressed="${story.story_id === selectedId}">
+            <span class="story-row-title">${headline(story.title, story.url)}</span>
+            <span class="story-meta">${listTags(story.surfaces)}<span>Best #${story.best_position}</span><span>Captured ${number.format(story.observation_count)} time${story.observation_count === 1 ? "" : "s"}</span><span>Last seen ${shortDate.format(new Date(story.last_seen))}</span></span>
+          </button></li>`).join("")
+        : `<li class="empty-state"><p>No stories match these filters.</p><button type="button" class="text-button" id="clear-filters">Clear filters</button></li>`;
     }
 
-    function sparkline(points: RankPoint[]): string {
-      if (!points.length) return "<p>No observations for this story in the 30-day rank mart.</p>";
-      const width = 440, height = 110, pad = 8;
-      const x = (index: number) => pad + index / Math.max(points.length - 1, 1) * (width - pad * 2);
-      const y = (rank: number) => pad + (rank - 1) / 9 * (height - pad * 2);
-      const bySurface = ["front_page", "most_read"].map((surface) => points.filter((point) => point.surface === surface));
-      const colours = ["oklch(73% .16 50)", "oklch(72% .13 235)"];
-      const lines = bySurface.map((set, setIndex) => set.map((point, index) => `<circle cx="${x(index)}" cy="${y(point.position)}" r="3" fill="${colours[setIndex]}"><title>${point.surface}, rank ${point.position}, ${point.observed_at}</title></circle>`).join("")).join("");
-      return `<svg class="spark" viewBox="0 0 ${width} ${height}" role="img" aria-label="Observed positions in the latest 30-day window"><line x1="${pad}" x2="${width-pad}" y1="${y(1)}" y2="${y(1)}" stroke="var(--dark-line)"/><line x1="${pad}" x2="${width-pad}" y1="${y(10)}" y2="${y(10)}" stroke="var(--dark-line)"/>${lines}</svg>`;
+    function positionChart(points: RankPoint[]): string {
+      if (!points.length) return `<p class="empty">This story was not captured in the latest 30 days of the archive.</p>`;
+      const holder = document.querySelector("#story-detail");
+      const width = Math.max(260, Math.round((holder?.getBoundingClientRect().width ?? 440) - 2));
+      const height = 150;
+      const pad = { top: 12, right: 8, bottom: 26, left: 28 };
+      const latest = Math.max(...rankSeries.map((point) => Date.parse(point.observed_at)));
+      const start = Math.min(...points.map((point) => Date.parse(point.observed_at)));
+      const from = Math.min(start, latest - 2 * 86_400_000);
+      const x = (time: number) => pad.left + ((time - from) / Math.max(latest - from, 1)) * (width - pad.left - pad.right);
+      const y = (position: number) => pad.top + ((position - 1) / 9) * (height - pad.top - pad.bottom);
+      const series = ["front_page", "most_read"].map((surface) => {
+        const set = points.filter((point) => point.surface === surface).sort((a, b) => a.observed_at.localeCompare(b.observed_at));
+        // Join consecutive captures only when they are close enough to be the same run on the list.
+        const path = set.map((point, index) => {
+          const gap = index ? Date.parse(point.observed_at) - Date.parse(set[index - 1]!.observed_at) : Infinity;
+          return `${gap <= 3 * 3_600_000 ? "L" : "M"}${x(Date.parse(point.observed_at)).toFixed(1)},${y(point.position).toFixed(1)}`;
+        }).join("");
+        const dots = set.map((point) => `<circle class="${surface}" cx="${x(Date.parse(point.observed_at)).toFixed(1)}" cy="${y(point.position).toFixed(1)}" r="3"><title>${SURFACE_NAME[surface]} #${point.position}, ${dateTime.format(new Date(point.observed_at))} UTC</title></circle>`).join("");
+        return set.length ? `<path class="${surface}" d="${path}"/>${dots}` : "";
+      }).join("");
+      const grid = [1, 5, 10].map((position) => `<line class="grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(position)}" y2="${y(position)}"/><text x="${pad.left - 8}" y="${y(position) + 4}" text-anchor="end">${position}</text>`).join("");
+      const axis = `<text x="${pad.left}" y="${height - 6}">${dayMonth.format(new Date(from))}</text><text x="${width - pad.right}" y="${height - 6}" text-anchor="end">${dayMonth.format(new Date(latest))}</text>`;
+      const surfaces = new Set(points.map((point) => point.surface));
+      return `<svg class="position-chart" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Captured positions from ${shortDate.format(new Date(from))} to ${shortDate.format(new Date(latest))}: ${points.length} captures">${grid}${axis}${series}</svg>
+        <p class="legend">${[...surfaces].map((surface) => `<span class="legend-${surface === "front_page" ? "front" : "read"}">${SURFACE_NAME[surface]}</span>`).join("")}</p>`;
     }
 
-    function renderDetail(
-      story: Story,
-      points: RankPoint[],
-      semantic?: SemanticDocument,
-      related: RelatedResult[] = [],
-    ) {
+    // `analysed` is false once the semantic index has answered without this story in it.
+    function renderDetail(story: Story, semantic?: SemanticDocument, related: RelatedResult[] = [], analysed?: boolean) {
+      lastDetail = { story, semantic, related, analysed };
+      const points = rankSeries.filter((point) => point.story_id === story.story_id);
       const summary = semantic?.summary
-        ? `<section class="detail-section"><p class="eyebrow">DeepSeek summary</p><p>${escape(semantic.summary)}</p></section>`
-        : "";
-      const tags = semantic
-        ? `<div class="detail-tags"><span>${escape(semantic.topic.replaceAll("_", " "))}</span>${semantic.themes.slice(0, 5).map((theme) => `<span>${escape(theme)}</span>`).join("")}</div>`
-        : "";
+        ? `<section class="detail-section" aria-labelledby="summary-heading"><h3 id="summary-heading">Summary</h3><p>${escape(semantic.summary)}</p>
+            <p class="story-meta"><span>${escape(semantic.topic.replaceAll("_", " "))}</span>${semantic.themes.slice(0, 5).map((theme) => `<span>${escape(theme.replaceAll("_", " "))}</span>`).join("")}</p>
+            <p class="source-note">Model-generated label; check against the article.</p></section>`
+        : analysed === false
+          ? `<section class="detail-section" aria-labelledby="summary-heading"><h3 id="summary-heading">Summary</h3><p class="source-note">Not analysed yet. Summaries, labels, and related coverage are added by the daily analysis run after the article is fetched.</p></section>`
+          : "";
       const relatedRows = related.length
-        ? related.map(({ document, score }) => `<li><span class="related-score">${score.toFixed(3)}</span><div><a href="${escape(document.url)}" target="_blank" rel="noreferrer">${escape(document.title)}</a><small>${escape(String(document.fetched_at).slice(0, 10))} · ${escape(document.themes.slice(0, 2).join(" + ") || document.topic.replaceAll("_", " "))}</small></div></li>`).join("")
-        : `<li class="related-pending">${semanticIndexReady ? "No related embedded stories were found." : "Loading the semantic index…"}</li>`;
+        ? related.map(({ document, score }) => `<li><a href="${storyLink(document.story_id)}" data-story="${escape(document.story_id)}">${headline(document.title, document.url)}</a>
+            <p class="story-meta"><span>${shortDate.format(new Date(document.fetched_at))}</span>${document.themes[0] ? `<span>${escape(document.themes.slice(0, 2).join(", ").replaceAll("_", " "))}</span>` : ""}<span>Similarity ${score.toFixed(2)}</span></p></li>`).join("")
+        : `<li class="empty">${!semanticIndexReady ? "Loading the semantic index…" : analysed === false ? "Available after the daily analysis run." : "No related stories with embeddings were found."}</li>`;
       element("#story-detail").innerHTML = `
-        <p class="eyebrow">Selected story</p>
-        <h2><a href="${escape(story.url)}" target="_blank" rel="noreferrer">${escape(story.title)} <span class="sr-only">(opens BBC article)</span></a></h2>
-        <p>${story.observation_count.toLocaleString("en-GB")} position-level observations across ${story.surfaces.length} surface${story.surfaces.length === 1 ? "" : "s"}.</p>
-        <dl>
-          <div><dt>First seen</dt><dd>${dateTime.format(new Date(story.first_seen))}</dd></div>
-          <div><dt>Last seen</dt><dd>${dateTime.format(new Date(story.last_seen))}</dd></div>
+        <h2 class="detail-title" id="detail-heading">${headline(story.title, story.url)}</h2>
+        <p class="detail-actions">
+          <a class="text-link" href="${escape(story.url)}">Open on BBC News ${externalIcon}</a>
+          <button type="button" class="text-button" id="copy-link">Copy link to this story</button>
+          <span id="copy-status" role="status"></span>
+        </p>
+        <dl class="fact-grid">
+          <div><dt>First captured</dt><dd>${dateTime.format(new Date(story.first_seen))}</dd></div>
+          <div><dt>Last captured</dt><dd>${dateTime.format(new Date(story.last_seen))}</dd></div>
           <div><dt>Best position</dt><dd>#${story.best_position}</dd></div>
-          <div><dt>Surfaces</dt><dd>${story.surfaces.length}</dd></div>
+          <div><dt>Captures</dt><dd>${number.format(story.observation_count)}</dd></div>
+          <div class="fact-wide"><dt>Lists</dt><dd>${listTags(story.surfaces)}</dd></div>
         </dl>
         ${summary}
-        ${tags}
-        ${sparkline(points)}
-        <section class="related-coverage" aria-labelledby="related-heading"><div class="related-heading"><div><p class="eyebrow">Powered by embeddings</p><h3 id="related-heading">Related coverage</h3></div><span>${semanticIndexReady ? "Index loaded" : "Index loading"}</span></div><ol>${relatedRows}</ol></section>`;
+        <section class="detail-section" aria-labelledby="positions-heading"><h3 id="positions-heading">Positions in the latest 30 days</h3>${positionChart(points)}</section>
+        <section class="detail-section" aria-labelledby="related-heading"><h3 id="related-heading">Related coverage</h3>
+          <p class="source-note">Nearest stories by headline and opening-text embeddings.</p><ol class="related-list">${relatedRows}</ol></section>`;
+      fitRecord();
     }
 
-    function selectStory(id: string) {
-      selectedId = id;
-      const story = stories.find((item) => item.story_id === id);
+    // A record taller than the viewport scrolls with the page rather than in a hidden inner pane.
+    function fitRecord() {
+      const record = element("#story-detail");
+      const wasPinned = record.classList.contains("is-sticky");
+      record.classList.toggle("is-sticky", record.scrollHeight < window.innerHeight - 112);
+      // A pinned record that grows too tall drops back into the flow; keep it where the reader is looking.
+      if (wasPinned && !record.classList.contains("is-sticky") && record.getBoundingClientRect().top < 0) {
+        record.scrollIntoView({ block: "start", behavior: "instant" });
+      }
+    }
+
+    function selectStory(id: string, mode: "push" | "replace" | "none" = "push") {
+      const story = storyById.get(id);
       if (!story) return;
-      const points = rankSeries.filter((item) => item.story_id === id);
-      renderDetail(story, points);
+      selectedId = id;
+      renderDetail(story);
+      element("#detail-status").textContent = `Showing: ${titleParts(story.title, story.url).text}`;
       if (semanticIndexReady) {
         relatedRequestId += 1;
         semanticWorker.postMessage({ type: "related", storyId: id, requestId: relatedRequestId, limit: 6 });
       }
-      renderRows();
+      element("#story-rows").querySelectorAll<HTMLButtonElement>(".story-row").forEach((row) => row.setAttribute("aria-pressed", String(row.dataset.id === id)));
+      if (mode !== "none") writeUrl(mode);
     }
 
     semanticWorker.addEventListener("message", (event: MessageEvent) => {
       const message = event.data;
       if (message.type === "index-ready") {
         semanticIndexReady = true;
-        if (selectedId) selectStory(selectedId);
+        if (selectedId) selectStory(selectedId, "none");
       }
       if (message.type === "related-results" && message.requestId === relatedRequestId && message.storyId === selectedId) {
-        const story = stories.find((item) => item.story_id === selectedId);
-        if (story) renderDetail(story, rankSeries.filter((item) => item.story_id === selectedId), message.selectedDocument, message.results);
+        const story = selectedId ? storyById.get(selectedId) : undefined;
+        if (story) renderDetail(story, message.selectedDocument, message.results, Boolean(message.selectedDocument));
       }
-      if (message.type === "fatal-error") {
-        semanticIndexReady = false;
-      }
+      if (message.type === "fatal-error") semanticIndexReady = false;
     });
 
-    element("#filters").addEventListener("input", () => { currentPage = 0; renderRows(); });
-    element("#previous-page").addEventListener("click", () => {
-      if (currentPage > 0) { currentPage -= 1; renderRows(); element("#story-list-heading").scrollIntoView(); }
+    element("#filters").addEventListener("submit", (event) => event.preventDefault());
+    element("#filters").addEventListener("input", () => { currentPage = 0; renderRows(); writeUrl("replace"); });
+    element("#story-rows").addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const row = target.closest<HTMLButtonElement>(".story-row");
+      if (row?.dataset.id) {
+        selectStory(row.dataset.id);
+        // A record that is not pinned may have scrolled away; bring it back so the change is seen.
+        const record = element("#story-detail");
+        if (record.getBoundingClientRect().top < 0 || window.matchMedia("(max-width: 900px)").matches) record.scrollIntoView({ block: "start" });
+      }
+      if (target.closest("#clear-filters")) {
+        (element("#filters") as HTMLFormElement).reset();
+        currentPage = 0;
+        renderRows();
+        writeUrl("replace");
+      }
     });
-    element("#next-page").addEventListener("click", () => {
-      if ((currentPage + 1) * pageSize < visibleStories().length) { currentPage += 1; renderRows(); element("#story-list-heading").scrollIntoView(); }
+    element("#story-detail").addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const related = target.closest<HTMLAnchorElement>("a[data-story]");
+      if (related?.dataset.story && storyById.has(related.dataset.story) && !(event as MouseEvent).metaKey && !(event as MouseEvent).ctrlKey) {
+        event.preventDefault();
+        selectStory(related.dataset.story);
+        element("#story-detail").scrollIntoView({ block: "start" });
+      }
+      if (target.closest("#copy-link")) {
+        const status = element("#copy-status");
+        navigator.clipboard?.writeText(location.href)
+          .then(() => { status.textContent = "Link copied"; })
+          .catch(() => { status.textContent = "Copy the address bar to share this story"; });
+      }
     });
+    const turnPage = (step: number) => {
+      currentPage += step;
+      renderRows();
+      writeUrl("replace");
+      element("#filters").scrollIntoView({ block: "start" });
+    };
+    element("#previous-page").addEventListener("click", () => { if (currentPage > 0) turnPage(-1); });
+    element("#next-page").addEventListener("click", () => { if ((currentPage + 1) * PAGE_SIZE < visibleStories().length) turnPage(1); });
+    window.addEventListener("popstate", () => {
+      const story = readUrl();
+      renderRows();
+      if (story && storyById.has(story)) selectStory(story, "none");
+    });
+    let lastWidth = 0;
+    new ResizeObserver(([entry]) => {
+      const width = Math.round(entry?.contentRect.width ?? 0);
+      if (lastDetail && width && Math.abs(width - lastWidth) > 24) {
+        lastWidth = width;
+        renderDetail(lastDetail.story, lastDetail.semantic, lastDetail.related, lastDetail.analysed);
+      }
+    }).observe(element("#story-detail"));
+
+    const requestedStory = readUrl();
     Promise.all([
-      fetch(`${base}data/stories.json`).then((response) => response.json()),
-      fetch(`${base}data/rank-series.json`).then((response) => response.json()),
+      fetch(`${base}data/stories.json`).then((response) => { if (!response.ok) throw new Error(`stories ${response.status}`); return response.json(); }),
+      fetch(`${base}data/rank-series.json`).then((response) => { if (!response.ok) throw new Error(`ranks ${response.status}`); return response.json(); }),
     ]).then((payloads: [Story[], RankPoint[]]) => {
       [stories, rankSeries] = payloads;
+      storyById = new Map(stories.map((story) => [story.story_id, story]));
       renderRows();
-      if (stories.length) selectStory(stories[0].story_id);
+      const initial = requestedStory && storyById.has(requestedStory) ? requestedStory : visibleStories()[0]?.story_id;
+      if (initial) selectStory(initial, requestedStory ? "none" : "replace");
+      if (requestedStory && !storyById.has(requestedStory)) {
+        element("#story-detail").insertAdjacentHTML("afterbegin", `<p class="empty">That story link is not in the archive. Showing the most recent story instead.</p>`);
+      }
     }).catch(() => {
-      element("#story-rows").innerHTML = `<tr><td class="loading" colspan="4">The static research mart could not be loaded.</td></tr>`;
+      element("#load-error").hidden = false;
+      element("#result-summary").textContent = "Stories unavailable";
+      element("#story-rows").innerHTML = "";
+      element("#story-detail").innerHTML = "";
     });
   </script>
 </Layout>
