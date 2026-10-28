@@ -28,7 +28,10 @@ uv run --extra semantic python -m services.fenic.weekly --publish
 ```
 
 Fenic 0.13 has no DeepSeek provider of its own, so the job reaches DeepSeek V4.1 Flash
-(`deepseek/deepseek-v4.1-flash-1017`) through Fenic's OpenRouter provider. Before any request the
+(`deepseek/deepseek-v4.1-flash-1017`) through Fenic's OpenRouter provider. One local workaround is
+needed: that provider builds its OpenAI SDK client without an `api_key`, so the job sets
+`OPENAI_API_KEY` to the OpenRouter key when it is unset. Requests still authenticate with the
+OpenRouter header. Before any request the
 job computes a worst-case cost from UTF-8 byte counts and capped output, at double OpenRouter's
 listed price. It refuses to run above `$0.10` per run or `$0.25` per calendar month, counting the
 cost Fenic reports for every published summary row. Results are published to `semantic/weekly/`

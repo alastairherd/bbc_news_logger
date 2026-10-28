@@ -36,6 +36,11 @@ Articles:
 
 
 def create_session() -> fc.Session:
+    # Our workaround for Fenic 0.13: its OpenRouter provider authenticates with an Authorization
+    # header but builds the OpenAI SDK client without an api_key, which the SDK rejects unless
+    # OPENAI_API_KEY is set. The header still carries the OpenRouter key on every request.
+    if os.getenv("OPENROUTER_API_KEY"):
+        os.environ.setdefault("OPENAI_API_KEY", os.environ["OPENROUTER_API_KEY"])
     return fc.Session.get_or_create(
         fc.SessionConfig(
             app_name="bbc_news_weekly",
