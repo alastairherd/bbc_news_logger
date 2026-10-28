@@ -1,0 +1,410 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Trends | BBC News Analyser"
+  description="Theme trends, front page and Most Read differences, and recurring stories in the BBC News archive."
+  current="trends"
+>
+  <div class="page">
+    <div class="page-head">
+      <h1>Trends</h1>
+      <p>What the labelled archive shows across themes, lists, and recurring stories. Counts are fetched article versions, not audience size.</p>
+    </div>
+
+    <section class="status-bar" aria-label="Analysis coverage">
+      <dl>
+        <div><dt>Labelled</dt><dd id="coverage">—</dd></div>
+        <div><dt>Structured signals</dt><dd id="signal-count">—</dd></div>
+        <div><dt>Recurring stories</dt><dd id="event-count">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="trend-block" aria-labelledby="findings-heading">
+      <div class="section-intro">
+        <h2 id="findings-heading" class="rule-heading">Latest findings</h2>
+        <p id="findings-window">Loading the latest comparable windows…</p>
+      </div>
+      <div class="changing-columns findings-columns">
+        <section aria-labelledby="rising-heading">
+          <h3 id="rising-heading">Rising themes</h3>
+          <p class="column-note">Change in share of labelled coverage between two 14-day windows.</p>
+          <ul id="rising-themes" class="change-list"><li class="empty">Loading…</li></ul>
+        </section>
+        <section aria-labelledby="surface-heading">
+          <h3 id="surface-heading">Front page vs Most Read</h3>
+          <p class="column-note">Themes with the largest gap in share, and the list they lean towards.</p>
+          <ul id="surface-differences" class="change-list"><li class="empty">Loading…</li></ul>
+        </section>
+        <section aria-labelledby="forms-heading">
+          <h3 id="forms-heading">Story forms</h3>
+          <p class="column-note">Share of labelled articles in the recent window.</p>
+          <ul id="story-forms" class="change-list"><li class="empty">Loading…</li></ul>
+        </section>
+        <section aria-labelledby="returning-findings-heading">
+          <h3 id="returning-findings-heading">Returning stories</h3>
+          <p class="column-note">Recently active events matched across articles.</p>
+          <ol id="returning-findings" class="return-list"><li class="empty">Loading…</li></ol>
+        </section>
+      </div>
+    </section>
+
+    <section class="trend-block" aria-labelledby="trend-heading">
+      <div class="section-intro">
+        <h2 id="trend-heading" class="rule-heading">Signal over time</h2>
+        <p>Pick a topic, theme, story form, or event type to see its daily article count over the latest 120 days.</p>
+      </div>
+      <form class="trend-controls" id="trend-filters" hidden>
+        <div class="filter-field"><label for="dimension">Group by</label><select id="dimension" name="dimension"><option value="topic">Topic</option><option value="theme">Theme</option><option value="story_form">Story form</option><option value="event_type">Event type</option></select></div>
+        <div class="filter-field"><label for="signal-value">Signal</label><select id="signal-value" name="value"><option>Preparing…</option></select></div>
+        <p class="filter-count" id="trend-scope">Ranked by activity in the latest 120 days.</p>
+      </form>
+      <p class="loader" id="trend-loader" role="status"><span id="trend-stage">Waiting for the findings…</span></p>
+      <figure class="chart" id="trend-explorer" hidden>
+        <figcaption><span id="trend-caption">Loading…</span></figcaption>
+        <svg id="trend-chart" class="plot" role="img" aria-labelledby="trend-caption"></svg>
+        <details class="chart-table">
+          <summary>Show daily figures as a table</summary>
+          <div class="table-scroll">
+            <table><thead><tr><th scope="col">Date (UTC)</th><th scope="col">Articles</th></tr></thead><tbody id="trend-table"></tbody></table>
+          </div>
+        </details>
+      </figure>
+    </section>
+
+    <section class="trend-block" aria-labelledby="recurring-heading">
+      <div class="section-intro">
+        <h2 id="recurring-heading" class="rule-heading">Stories that return</h2>
+        <p>Every link between articles needs embedding similarity plus a matching event type and shared entities or event-label evidence.</p>
+      </div>
+      <p class="loader" id="event-loader" role="status"><span id="event-stage">Loads after the trends.</span></p>
+      <div class="event-explorer" id="event-explorer" hidden>
+        <div class="event-index">
+          <div class="filter-field">
+            <label for="event-query">Filter stories</label>
+            <span class="input-icon">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25" /><path d="m10.25 10.25 3.25 3.25" /></svg>
+              <input id="event-query" type="search" placeholder="Event or theme" autocomplete="off" />
+            </span>
+          </div>
+          <ol class="event-list" id="event-list" aria-label="Recurring stories"></ol>
+          <nav class="pager" aria-label="Recurring story pages">
+            <button class="pager-button" id="previous-event-page" type="button"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>Previous</button>
+            <span id="event-page-status" aria-live="polite">—</span>
+            <button class="pager-button" id="next-event-page" type="button">Next<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg></button>
+          </nav>
+        </div>
+        <aside class="event-detail" id="event-detail" aria-labelledby="event-title"><p class="empty">Choose a story to see its article timeline.</p></aside>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    import { titleParts } from "../lib/titles";
+
+    interface TrendSeriesRow { observed_date: string; article_count: number }
+    interface EventArticle { story_id: string; title: string; url: string; fetched_at: string; best_position: number | null; surfaces: string[] }
+    interface EventCluster { cluster_id: string; label: string; event_type: string; themes: string[]; first_seen: string; last_seen: string; article_count: number; version_count: number; articles: EventArticle[] }
+    interface EventSummary { cluster_id: string; label: string; event_type: string; themes: string[]; last_seen: string; article_count: number }
+    interface Manifest { semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number } }
+    interface ThemeChange { theme: string; recentCount: number; previousCount: number; changePercentagePoints: number }
+    interface SurfaceDifference { theme: string; differencePercentagePoints: number }
+    interface StoryFormFinding { storyForm: string; count: number; share: number }
+    interface Findings { window: null | { recentStart: string; recentEnd: string; recentLabelledArticles: number; previousLabelledArticles: number }; risingThemes: ThemeChange[]; storyForms: StoryFormFinding[]; surfaceDifferences: SurfaceDifference[]; returningStories: EventCluster[] }
+
+    const SURFACE_NAME: Record<string, string> = { front_page: "Front page", most_read: "Most Read" };
+    const LOW_SAMPLE = 200;
+    const EVENT_PAGE_SIZE = 25;
+    const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+    const number = new Intl.NumberFormat("en-GB");
+    const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+    const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+    let selectedEvent: string | null = null;
+    let trendRequestId = 0;
+    let eventPage = 0;
+    let eventTotal = 0;
+    let trendReady = false;
+    let eventsReady = false;
+    let eventStageStarted = false;
+    let pendingEventId: string | null = null;
+    let eventFilterTimer = 0;
+    let lastTrend: { rows: TrendSeriesRow[]; value: string } | null = null;
+    // Days with at least one homepage capture; a signal cannot be measured on any other day.
+    let collectedDays = new Set<string>();
+
+    const escape = (value: unknown): string => {
+      const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
+      return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
+    };
+    const element = (selector: string): HTMLElement => { const result = document.querySelector<HTMLElement>(selector); if (!result) throw new Error(`Missing element: ${selector}`); return result; };
+    const control = (selector: string): HTMLInputElement | HTMLSelectElement => { const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector); if (!result) throw new Error(`Missing control: ${selector}`); return result; };
+    const label = (value: string) => value.replaceAll("_", " ");
+    const askLink = (theme: string) => `${base}signals/?q=${encodeURIComponent(`How has coverage of ${label(theme)} changed?`)}`;
+
+    let signalsWorker: Worker | null = null;
+    let signalsWorkerLoad: Promise<Worker> | null = null;
+
+    function getSignalsWorker(): Promise<Worker> {
+      if (signalsWorker) return Promise.resolve(signalsWorker);
+      if (signalsWorkerLoad) return signalsWorkerLoad;
+      signalsWorkerLoad = import("../workers/signals-data.worker?worker").then(({ default: SignalsDataWorker }) => {
+        signalsWorker = new SignalsDataWorker();
+        signalsWorker.addEventListener("message", handleSignalsMessage);
+        return signalsWorker;
+      });
+      return signalsWorkerLoad;
+    }
+
+    function scheduleBackground(work: () => void, timeout = 800) {
+      if (typeof requestIdleCallback === "function") requestIdleCallback(work, { timeout });
+      else setTimeout(work, 160);
+    }
+
+    function startTrendStage() {
+      element("#trend-stage").textContent = "Preparing daily trends…";
+      void getSignalsWorker().then((worker) => worker.postMessage({
+        type: "init-trends",
+        url: new URL(`${base}data/semantic-trends.json`, location.href).href,
+      })).catch(() => showTrendError("The trend worker could not start. Refresh the page to try again."));
+    }
+
+    function startEventStage() {
+      if (eventStageStarted) return;
+      eventStageStarted = true;
+      element("#event-stage").textContent = "Preparing recurring-story timelines…";
+      void getSignalsWorker().then((worker) => worker.postMessage({
+        type: "init-events",
+        url: new URL(`${base}data/recurring-events.json`, location.href).href,
+      })).catch(() => showEventError("The recurring-story worker could not start. Refresh the page to try again."));
+    }
+
+    function renderFindings(findings: Findings) {
+      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)} pp`;
+      if (findings.window) {
+        const labelled = findings.window.recentLabelledArticles + findings.window.previousLabelledArticles;
+        element("#findings-window").innerHTML = `${date.format(new Date(findings.window.recentStart))} to ${date.format(new Date(findings.window.recentEnd))}, compared with the previous 14 days. ${number.format(labelled)} labelled article versions; shares are normalised by labelled count.${labelled < LOW_SAMPLE
+          ? `<span class="sample-warning"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>Too few labelled articles for reliable comparisons. Collection gaps reduce the sample; treat these changes as provisional.</span>`
+          : ""}`;
+      } else {
+        element("#findings-window").textContent = "More labelled coverage is needed before two comparable 14-day windows exist.";
+      }
+      element("#rising-themes").innerHTML = findings.risingThemes.slice(0, 6).map((row) =>
+        `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure">${signed(row.changePercentagePoints)}</span></li>`).join("")
+        || `<li class="empty">No theme rose between the two windows.</li>`;
+      element("#surface-differences").innerHTML = findings.surfaceDifferences.slice(0, 6).map((row) => {
+        const towards = row.differencePercentagePoints >= 0 ? "most_read" : "front_page";
+        return `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(2)} pp</span></li>`;
+      }).join("") || `<li class="empty">More labelled coverage is needed for this comparison.</li>`;
+      element("#story-forms").innerHTML = findings.storyForms.slice(0, 7).map((row) =>
+        `<li class="share-row"><span>${escape(label(row.storyForm))}</span><span class="share-bar" aria-hidden="true"><i style="width:${Math.min(row.share, 100)}%"></i></span><span class="figure">${row.share.toFixed(1)}%</span></li>`).join("")
+        || `<li class="empty">Story-form labels are not available yet.</li>`;
+      element("#returning-findings").innerHTML = findings.returningStories.slice(0, 5).map((event, index) =>
+        `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div><a href="#recurring-heading" data-event-id="${escape(event.cluster_id)}">${escape(event.label)}</a><p>${number.format(event.article_count)} articles · latest ${date.format(new Date(event.last_seen))}</p></div></li>`).join("")
+        || `<li class="empty">No recurring-story clusters meet the matching threshold yet.</li>`;
+    }
+
+    function setTrendValues(dimension: string, values: string[], available: number, limit: number) {
+      control("#dimension").value = dimension;
+      const select = control("#signal-value") as HTMLSelectElement;
+      const previous = select.value;
+      select.innerHTML = values.length ? values.map((value) => `<option value="${escape(value)}">${escape(label(value))}</option>`).join("") : "<option>No active signals</option>";
+      if (values.includes(previous)) select.value = previous;
+      element("#trend-scope").textContent = available > limit
+        ? `The ${number.format(values.length)} most active of ${number.format(available)} in the latest 120 days.`
+        : "Ranked by activity in the latest 120 days.";
+      if (values.length) requestTrendSeries();
+    }
+
+    function requestTrendValues() {
+      if (!trendReady || !signalsWorker) return;
+      (control("#signal-value") as HTMLSelectElement).innerHTML = "<option>Preparing…</option>";
+      signalsWorker.postMessage({ type: "trend-values", dimension: control("#dimension").value });
+    }
+
+    function requestTrendSeries() {
+      if (!trendReady || !signalsWorker) return;
+      trendRequestId += 1;
+      element("#trend-caption").textContent = "Updating…";
+      signalsWorker.postMessage({ type: "trend-series", requestId: trendRequestId, dimension: control("#dimension").value, value: control("#signal-value").value });
+    }
+
+    function renderTrend(rows: TrendSeriesRow[], value: string) {
+      lastTrend = { rows, value };
+      const svg = document.querySelector<SVGElement>("#trend-chart");
+      if (!svg) return;
+      element("#trend-caption").textContent = rows.length ? `${label(value)}: article versions per day, latest 120 days` : "This signal has no labelled articles in the latest 120 days.";
+      element("#trend-table").innerHTML = [...rows].reverse().map((row) => `<tr><th scope="row">${date.format(new Date(row.observed_date))}</th><td>${number.format(row.article_count)}</td></tr>`).join("");
+      if (!rows.length) { svg.innerHTML = ""; return; }
+      const width = Math.max(280, Math.round(svg.getBoundingClientRect().width) || 1000);
+      const height = width < 600 ? 200 : 260;
+      const pad = { top: 16, right: 12, bottom: 30, left: 36 };
+      const start = Date.parse(rows[0]!.observed_date);
+      const end = Date.parse(rows.at(-1)!.observed_date);
+      const maximum = Math.max(...rows.map((row) => row.article_count), 1);
+      const x = (day: string) => pad.left + ((Date.parse(day) - start) / Math.max(end - start, 1)) * (width - pad.left - pad.right);
+      const y = (count: number) => pad.top + (1 - count / maximum) * (height - pad.top - pad.bottom);
+      const grid = [0, 0.5, 1].map((part) => `<line class="grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(maximum * part)}" y2="${y(maximum * part)}"/><text x="${pad.left - 8}" y="${y(maximum * part) + 4}" text-anchor="end">${Math.round(maximum * part)}</text>`).join("");
+      // Days without collection are gaps, not zeros: the line breaks there and the gap is shaded.
+      const collected = (day: string) => !collectedDays.size || collectedDays.has(day);
+      let path = "";
+      let penDown = false;
+      for (const row of rows) {
+        if (!collected(row.observed_date)) { penDown = false; continue; }
+        path += `${penDown ? "L" : "M"}${x(row.observed_date).toFixed(1)},${y(row.article_count).toFixed(1)}`;
+        penDown = true;
+      }
+      const gaps: string[] = [];
+      let gapStart: string | null = null;
+      rows.forEach((row, index) => {
+        if (!collected(row.observed_date)) { gapStart ??= rows[Math.max(0, index - 1)]!.observed_date; return; }
+        if (gapStart) {
+          const x1 = x(gapStart), x2 = x(row.observed_date);
+          gaps.push(`<rect class="gap" x="${x1}" y="${pad.top}" width="${x2 - x1}" height="${height - pad.top - pad.bottom}"/>${x2 - x1 > 110 ? `<text x="${(x1 + x2) / 2}" y="${pad.top + 14}" text-anchor="middle">No collection</text>` : ""}`);
+          gapStart = null;
+        }
+      });
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.innerHTML = `${gaps.join("")}${grid}<path class="trend-line" d="${path}"/><text x="${pad.left}" y="${height - 8}">${dayMonth.format(new Date(start))}</text><text text-anchor="end" x="${width - pad.right}" y="${height - 8}">${dayMonth.format(new Date(end))}</text>`;
+    }
+
+    function requestEventPage() {
+      if (!eventsReady || !signalsWorker) return;
+      signalsWorker.postMessage({ type: "event-page", query: control("#event-query").value, page: eventPage, pageSize: EVENT_PAGE_SIZE });
+    }
+
+    function renderEvents(rows: EventSummary[], total: number, page: number) {
+      eventTotal = total;
+      eventPage = page;
+      const first = eventPage * EVENT_PAGE_SIZE;
+      element("#event-page-status").textContent = total ? `${number.format(first + 1)}–${number.format(Math.min(first + EVENT_PAGE_SIZE, total))} of ${number.format(total)}` : "No matches";
+      (element("#previous-event-page") as HTMLButtonElement).disabled = eventPage === 0;
+      (element("#next-event-page") as HTMLButtonElement).disabled = (eventPage + 1) * EVENT_PAGE_SIZE >= total || !total;
+      element("#event-list").innerHTML = rows.length
+        ? rows.map((event) => `<li><button class="story-row" type="button" data-id="${escape(event.cluster_id)}" aria-pressed="${event.cluster_id === selectedEvent}"><span class="story-row-title">${escape(event.label)}</span><span class="story-meta"><span>${escape(label(event.event_type))}</span><span>${number.format(event.article_count)} articles</span><span>Latest ${date.format(new Date(event.last_seen))}</span></span></button></li>`).join("")
+        : `<li class="empty">No recurring stories match. Try a broader event or theme.</li>`;
+    }
+
+    function requestEventDetail(id: string) {
+      if (!id) return;
+      selectedEvent = id;
+      if (!eventsReady || !signalsWorker) { pendingEventId = id; return; }
+      pendingEventId = null;
+      signalsWorker.postMessage({ type: "event-detail", id });
+    }
+
+    function renderEventDetail(event: EventCluster) {
+      const timeline = event.articles.map((article) => {
+        const { live, text } = titleParts(article.title, article.url);
+        return `<li><time datetime="${escape(article.fetched_at)}">${date.format(new Date(article.fetched_at))}</time><div><a href="${base}explore/?story=${encodeURIComponent(article.story_id)}">${live ? `<span class="live-label">Live</span> ` : ""}${escape(text)}</a>
+          <p class="story-meta">${article.surfaces.length ? article.surfaces.map((surface) => `<span class="list-tag list-${surface}">${SURFACE_NAME[surface] ?? escape(surface)}</span>`).join("") : "<span>Article archive only</span>"}${article.best_position ? `<span>Best #${article.best_position}</span>` : ""}</p></div></li>`;
+      }).join("");
+      element("#event-detail").innerHTML = `<h3 class="detail-title" id="event-title">${escape(event.label)}</h3>
+        <p class="story-meta"><span>${escape(label(event.event_type))}</span>${event.themes.slice(0, 5).map((theme) => `<span>${escape(label(theme))}</span>`).join("")}</p>
+        <dl class="fact-grid">
+          <div><dt>First article</dt><dd>${date.format(new Date(event.first_seen))}</dd></div>
+          <div><dt>Latest article</dt><dd>${date.format(new Date(event.last_seen))}</dd></div>
+          <div><dt>Articles</dt><dd>${number.format(event.article_count)}</dd></div>
+          <div><dt>Article versions</dt><dd>${number.format(event.version_count)}</dd></div>
+        </dl>
+        <section class="detail-section" aria-labelledby="timeline-heading"><h4 id="timeline-heading">Timeline</h4><ol class="event-timeline">${timeline}</ol></section>`;
+      element("#event-list").querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.id === event.cluster_id)));
+    }
+
+    function openEvent(id: string) {
+      if (!id) return;
+      pendingEventId = id;
+      startEventStage();
+      requestEventDetail(id);
+      element("#recurring-heading").scrollIntoView({ block: "start" });
+    }
+
+    function showTrendError(message: string) {
+      element("#trend-stage").innerHTML = `<strong>Error:</strong> ${escape(message)}`;
+      element("#trend-loader").dataset.state = "error";
+      scheduleBackground(startEventStage, 500);
+    }
+
+    function showEventError(message: string) {
+      element("#event-stage").innerHTML = `<strong>Error:</strong> ${escape(message)}`;
+      element("#event-loader").dataset.state = "error";
+    }
+
+    function handleSignalsMessage(event: MessageEvent) {
+      const message = event.data;
+      if (message.type === "trend-status") element("#trend-stage").textContent = message.message;
+      if (message.type === "trend-ready") {
+        trendReady = true;
+        control("#dimension").value = message.dimension;
+        element("#trend-loader").hidden = true;
+        element("#trend-filters").hidden = false;
+        element("#trend-explorer").hidden = false;
+        setTrendValues(message.dimension, message.values, message.available, message.limit);
+      }
+      if (message.type === "trend-values" && message.dimension === control("#dimension").value) setTrendValues(message.dimension, message.values, message.available, message.limit);
+      if (message.type === "trend-series" && message.requestId === trendRequestId) {
+        renderTrend(message.rows, message.value);
+        scheduleBackground(startEventStage, 600);
+      }
+      if (message.type === "trend-error") showTrendError(message.message);
+      if (message.type === "event-status") element("#event-stage").textContent = message.message;
+      if (message.type === "events-ready") {
+        eventsReady = true;
+        element("#event-loader").hidden = true;
+        element("#event-explorer").hidden = false;
+        requestEventPage();
+        if (pendingEventId) requestEventDetail(pendingEventId);
+      }
+      if (message.type === "event-page") {
+        renderEvents(message.events, message.total, message.page);
+        if (pendingEventId) requestEventDetail(pendingEventId);
+        else if (!selectedEvent && message.events.length) requestEventDetail(message.events[0].cluster_id);
+      }
+      if (message.type === "event-detail" && message.event) renderEventDetail(message.event);
+      if (message.type === "events-error") showEventError(message.message);
+    }
+
+    element("#trend-filters").addEventListener("change", (event) => event.target === control("#dimension") ? requestTrendValues() : requestTrendSeries());
+    element("#trend-filters").addEventListener("submit", (event) => event.preventDefault());
+    control("#event-query").addEventListener("input", () => {
+      window.clearTimeout(eventFilterTimer);
+      eventFilterTimer = window.setTimeout(() => { eventPage = 0; requestEventPage(); }, 160);
+    });
+    element("#event-list").addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
+      if (button?.dataset.id) requestEventDetail(button.dataset.id);
+    });
+    element("#returning-findings").addEventListener("click", (event) => {
+      const link = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[data-event-id]");
+      if (link?.dataset.eventId) { event.preventDefault(); openEvent(link.dataset.eventId); }
+    });
+    element("#previous-event-page").addEventListener("click", () => { if (eventPage > 0) { eventPage -= 1; requestEventPage(); } });
+    element("#next-event-page").addEventListener("click", () => { if ((eventPage + 1) * EVENT_PAGE_SIZE < eventTotal) { eventPage += 1; requestEventPage(); } });
+    let lastWidth = 0;
+    new ResizeObserver(([entry]) => {
+      const width = Math.round(entry?.contentRect.width ?? 0);
+      if (lastTrend && width && Math.abs(width - lastWidth) > 24) { lastWidth = width; renderTrend(lastTrend.rows, lastTrend.value); }
+    }).observe(element("#trend-chart"));
+    // Arriving at a later section (for example from the Overview) starts its data straight away.
+    if (location.hash === "#recurring-heading") startEventStage();
+
+    Promise.all([
+      fetch(`${base}data/manifest.json`).then((response) => response.json()),
+      fetch(`${base}data/semantic-findings.json`).then((response) => response.json()),
+      fetch(`${base}data/daily.json`).then((response) => response.json()).catch(() => []),
+    ]).then(([manifest, findings, daily]: [Manifest, Findings, { observed_date: string }[]]) => {
+      collectedDays = new Set(daily.map((row) => row.observed_date));
+      renderFindings(findings);
+      const semantic = manifest.semantics;
+      if (semantic) {
+        element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}% of article versions`;
+        element("#signal-count").textContent = number.format(semantic.signalCount);
+        element("#event-count").textContent = number.format(semantic.recurringEventCount);
+      }
+      scheduleBackground(startTrendStage, 500);
+    }).catch(() => {
+      element("#findings-window").innerHTML = `<strong>Error:</strong> the findings could not be loaded. Refresh the page to try again.`;
+      scheduleBackground(startTrendStage, 500);
+    });
+  </script>
+</Layout>

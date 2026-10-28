@@ -5,7 +5,7 @@ import "../styles/global.css";
 interface Props {
   title: string;
   description: string;
-  current?: "overview" | "explore" | "signals" | "methodology";
+  current?: "overview" | "explore" | "signals" | "trends" | "methodology";
 }
 
 const { title, description, current } = Astro.props;
@@ -13,7 +13,8 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
 const sections = [
   { id: "overview", label: "Overview", href: base },
   { id: "explore", label: "Explore", href: `${base}explore/` },
-  { id: "signals", label: "Ask & analyse", href: `${base}signals/` },
+  { id: "signals", label: "Ask the archive", href: `${base}signals/` },
+  { id: "trends", label: "Trends", href: `${base}trends/` },
   { id: "methodology", label: "Methodology", href: `${base}methodology/` },
 ] as const;
 ---

@@ -60,7 +60,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
         <section aria-labelledby="themes-heading">
           <div class="column-head">
             <h3 id="themes-heading">Rising and falling themes</h3>
-            <a href={`${base}signals/#trend-heading`}>Inspect trends</a>
+            <a href={`${base}trends/#trend-heading`}>Inspect trends</a>
           </div>
           <div id="lead-theme"><p class="empty">Loading rising themes…</p></div>
           <ul id="theme-momentum" class="change-list"></ul>
@@ -68,7 +68,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
         <section aria-labelledby="surfaces-heading">
           <div class="column-head">
             <h3 id="surfaces-heading">Front page vs Most Read</h3>
-            <a href={`${base}signals/#findings-heading`}>Compare surfaces</a>
+            <a href={`${base}trends/#findings-heading`}>Compare surfaces</a>
           </div>
           <p class="column-note">Themes with the largest gap in their share of labelled coverage, and the list they lean towards.</p>
           <ul id="surface-skews" class="change-list"><li class="empty">Loading surface differences…</li></ul>
@@ -76,7 +76,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
         <section aria-labelledby="returning-heading">
           <div class="column-head">
             <h3 id="returning-heading">Stories that return</h3>
-            <a href={`${base}signals/#recurring-heading`}>Open timelines</a>
+            <a href={`${base}trends/#recurring-heading`}>Open timelines</a>
           </div>
           <p class="column-note">Events matched across distinct articles using labels, entities, and embeddings.</p>
           <ol id="returning-stories" class="return-list"><li class="empty">Loading recurring stories…</li></ol>
@@ -262,7 +262,7 @@ const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
         return `<li><a href="${queryLink(row.theme)}">${escape(themeName(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(2)} pp</span></li>`;
       }).join("") || `<li class="empty">More labelled coverage is needed for this comparison.</li>`;
       element("#returning-stories").innerHTML = findings.returningStories.slice(0, 4).map((story, index) =>
-        `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div><a href="${base}signals/#recurring-heading">${escape(story.label)}</a><p>${number.format(story.article_count)} articles · latest ${shortDate.format(new Date(story.last_seen))}</p></div></li>`).join("")
+        `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div><a href="${base}trends/#recurring-heading">${escape(story.label)}</a><p>${number.format(story.article_count)} articles · latest ${shortDate.format(new Date(story.last_seen))}</p></div></li>`).join("")
         || `<li class="empty">No recurring-story clusters meet the matching threshold yet.</li>`;
     }
 
