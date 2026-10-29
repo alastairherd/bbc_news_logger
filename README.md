@@ -20,7 +20,8 @@ BBC's terms and copyright.
 | --- | --- |
 | **Overview** | Recent theme momentum, differences between the front page and Most Read, story-form mix, collection health, and returning stories |
 | **Explore** | A filterable, paginated story archive with article links and semantically related coverage |
-| **Ask & analyse** | Local semantic search, optional cited synthesis, 120-day signal trends, and recurring-story timelines |
+| **Ask the archive** | Local semantic search and optional cited synthesis |
+| **Trends** | Weekly theme summaries, theme momentum, 120-day signal trends, and recurring-story timelines |
 | **Promotion vs attention** | Which promoted stories reach Most Read, which are read without promotion, the delay between the two, by theme and by month |
 | **Methodology** | Collection rules, schemas, validation, semantic methods, known gaps, and interpretive limits |
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -43,6 +44,42 @@ ALLOWED_TOPICS = {
     "culture",
     "sport",
     "other",
+}
+STORY_FORMS = {
+    "breaking_news",
+    "update",
+    "analysis",
+    "explainer",
+    "reaction",
+    "feature",
+    "live_coverage",
+    "other",
+}
+# Off-vocabulary forms the model has returned, mapped onto the forms the prompt allows.
+STORY_FORM_ALIASES = {
+    "upate": "update",
+    "news": "update",
+    "news_article": "update",
+    "news_story": "update",
+    "news_report": "update",
+    "news_update": "update",
+    "report": "update",
+    "announcement": "update",
+    "roundup": "update",
+    "recap": "update",
+    "summary": "update",
+    "breakking_news": "breaking_news",
+    "news_breaking": "breaking_news",
+    "break": "breaking_news",
+    "features": "feature",
+    "interview": "feature",
+    "first_person_account": "feature",
+    "obituary": "feature",
+    "review": "feature",
+    "preview": "feature",
+    "investigation": "analysis",
+    "investigative": "analysis",
+    "sports_analysis": "analysis",
 }
 TOPIC_ALIASES = {
     "weather": "science_and_environment",
@@ -287,6 +324,14 @@ def _string_list(
     return cleaned[:maximum]
 
 
+def normalize_story_form(value: object) -> str:
+    """Map any returned story form onto the allowed vocabulary; unknown forms become other."""
+
+    form = re.sub(r"[\s-]+", "_", str(value or "").strip().lower())
+    form = STORY_FORM_ALIASES.get(form, form)
+    return form if form in STORY_FORMS else "other"
+
+
 def parse_signals(content: str) -> SemanticSignals:
     """Validate the model's JSON response before it reaches the public dataset."""
 
@@ -318,7 +363,7 @@ def parse_signals(content: str) -> SemanticSignals:
         ),
         event_label=event_label,
         event_type=str(value.get("event_type", "other")).strip().lower() or "other",
-        story_form=str(value.get("story_form", "other")).strip().lower() or "other",
+        story_form=normalize_story_form(value.get("story_form")),
     )
 
 

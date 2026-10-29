@@ -18,6 +18,7 @@ from huggingface_hub import snapshot_download
 
 from .compaction import download_patterns, parquet_files
 from .config import DEFAULT_DATASET_ID
+from .deepseek import normalize_story_form
 
 SEMANTIC_PREFIXES = (
     "data/observations",
@@ -361,6 +362,9 @@ def _labelled_articles(
             existing is None or row["generated_at"] > existing["generated_at"]
         ):
             signal_by_hash[content_hash] = row
+    # Older labels predate the story-form vocabulary check, so they are normalized on read.
+    for row in signal_by_hash.values():
+        row["story_form"] = normalize_story_form(row.get("story_form"))
     return article_by_hash, signal_by_hash
 
 

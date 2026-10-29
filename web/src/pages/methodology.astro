@@ -20,6 +20,7 @@ import Layout from "../layouts/Layout.astro";
           <summary>On this page <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 6 8 10.5 12.5 6" /></svg></summary>
           <ol>
             <li><a href="#notices">Data notices</a></li>
+            <li><a href="#numbers">Reading the numbers</a></li>
             <li><a href="#collection">Collection</a></li>
             <li><a href="#contract">Storage and schemas</a></li>
             <li><a href="#migration">Historical migration</a></li>
@@ -51,6 +52,20 @@ import Layout from "../layouts/Layout.astro";
             <p class="callout-date"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>6 to 21 May 2025</p>
             <p><strong>Most Read not captured.</strong> 346 captures recorded the front page but no Most Read list, nearly all of them in this period. Front-page observations from these captures are kept, but Promotion vs attention leaves them out, because they cannot show whether a story was also in Most Read.</p>
           </div>
+        </section>
+
+        <section id="numbers" aria-labelledby="numbers-heading">
+          <h2 id="numbers-heading">Reading the numbers</h2>
+          <p>The pages count different things. These are the units, from smallest to largest.</p>
+          <dl class="schema glossary">
+            <div><dt>Capture</dt><dd>One hourly visit to the BBC News homepage, recording the ten front-page promotion slots and the ten Most Read places.</dd></div>
+            <div><dt>Observation</dt><dd>One story in one position in one capture. A story on the front page for five hours has about five front-page observations.</dd></div>
+            <div><dt>Story</dt><dd>One BBC article address, however many times it was captured or edited.</dd></div>
+            <div><dt>Article version</dt><dd>The text of a story as fetched on one day. A story that changes after publication can have several versions.</dd></div>
+            <div><dt>Labelled</dt><dd>An article version that has been given a topic, themes, story form, and summary by the language model. Theme figures count labelled versions only.</dd></div>
+            <div><dt>Percentage points</dt><dd>The difference between two percentages. If a theme is 4% of coverage one fortnight and 6% the next, it rose by 2 percentage points, not by 2%.</dd></div>
+            <div><dt>Most Read rank</dt><dd>A place in the BBC’s Most Read list. It shows relative attention at that moment, not an audience count.</dd></div>
+          </dl>
         </section>
 
         <section id="collection" aria-labelledby="collection-heading">
@@ -105,7 +120,7 @@ import Layout from "../layouts/Layout.astro";
         <section id="interface" aria-labelledby="interface-heading">
           <h2 id="interface-heading">Interface and cited synthesis</h2>
           <p>DuckDB turns the public Parquet tables into compact, browser-ready marts during the Pages build. Astro produces the static site. No permanent application server is required for ordinary exploration.</p>
-          <p>The newest embedded version of each story is published as a row-aligned, int8-quantised vector index. On Ask &amp; analyse, the index and BGE Small query model load only after a visitor starts a semantic search. Retrieval runs in a browser worker, and the query text is not sent to this project. Explore uses the same index for related coverage without loading the query model.</p>
+          <p>The newest embedded version of each story is published as a row-aligned, int8-quantised vector index. On Ask the archive, the index and BGE Small query model load only after a visitor starts a semantic search. Retrieval runs in a browser worker, and the query text is not sent to this project. Explore uses the same index for related coverage without loading the query model.</p>
           <p>Large trend and recurring-story marts load in stages after the headline findings. Parsing, indexing, filtering, and semantic comparisons happen off the main browser thread so the page stays responsive while data is prepared.</p>
           <p><strong>Promotion vs attention</strong> compares the two lists story by story, using only captures that recorded both. A story is promoted if it appeared in any of the ten captured front-page slots, and read if it appeared in the top ten of Most Read. The delay runs from its first front-page capture to its first Most Read capture, so its precision is the capture interval: about an hour when collection runs hourly, several hours in sparse periods. Stories first seen in the latest 24 hours are left out until they have had time to reach the other list. Themes come from each story’s most recent label, and only themes with at least 30 compared stories are shown.</p>
           <p class="note"><strong>Optional cited synthesis.</strong> Ask the archive sends the question and at most twenty locally retrieved BBC evidence rows to a rate-limited Cloudflare Worker with a shared daily spending cap of $0.50 per UTC day; once it is reached, answers pause until midnight UTC. DeepSeek is instructed to rank relevance, separate reported claims from established facts, surface disagreement, and cite numbered evidence. Fast and Reasoned modes use bounded output allowances; private model reasoning is neither stored nor displayed. Search, related coverage, trends, and findings remain available when synthesis is offline or over budget.</p>

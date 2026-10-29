@@ -10,7 +10,14 @@ import Layout from "../layouts/Layout.astro";
   <div class="page">
     <div class="page-head">
       <h1>Promotion vs attention</h1>
-      <p>Which promoted stories reach Most Read, which stories readers find without front-page promotion, and how long the gap is. Every story is compared across captures that recorded both lists.</p>
+      <p>Which promoted stories reach Most Read, which reach Most Read without being captured on the front page, and how long the gap is. Every story is compared across captures that recorded both lists. A Most Read rank is not an audience count, and a story missing from Most Read was not necessarily unread.</p>
+      <nav class="page-jumps" aria-label="On this page">
+        <a href="#outcomes-heading">Three outcomes</a>
+        <a href="#lag-heading">Time to Most Read</a>
+        <a href="#examples-heading">Clearest cases</a>
+        <a href="#theme-heading">By theme</a>
+        <a href="#month-heading">By month</a>
+      </nav>
     </div>
 
     <section class="status-bar" aria-label="Comparison coverage">
@@ -26,7 +33,7 @@ import Layout from "../layouts/Layout.astro";
     <div id="promotion-view" hidden>
       <section class="trend-block" aria-labelledby="outcomes-heading">
         <div class="section-intro">
-          <h2 id="outcomes-heading" class="rule-heading">Three outcomes</h2>
+          <h2 id="outcomes-heading" class="rule-heading" tabindex="-1">Three outcomes</h2>
           <p>Every compared story was on the front page, in Most Read, or both. The front page here means the ten promoted slots the collector records.</p>
         </div>
         <div class="outcome-bar" id="outcome-bar" aria-hidden="true"></div>
@@ -51,15 +58,34 @@ import Layout from "../layouts/Layout.astro";
 
       <section class="trend-block" aria-labelledby="lag-heading">
         <div class="section-intro">
-          <h2 id="lag-heading" class="rule-heading">Time to Most Read</h2>
+          <h2 id="lag-heading" class="rule-heading" tabindex="-1">Time to Most Read</h2>
           <p>For stories on both lists, the time from first front-page capture to first Most Read capture. Captures are about an hour apart at best, so “same capture” means within roughly an hour.</p>
         </div>
         <ul class="change-list lag-list" id="lag-list"></ul>
       </section>
 
+      <section class="trend-block" aria-labelledby="examples-heading">
+        <div class="section-intro">
+          <h2 id="examples-heading" class="rule-heading" tabindex="-1">Clearest cases</h2>
+          <p>The stories captured on one list most often without ever being captured on the other. Absence from Most Read is not proof that nobody read a story.</p>
+        </div>
+        <div class="changing-columns example-columns">
+          <section aria-labelledby="read-examples-heading">
+            <h3 id="read-examples-heading">In Most Read, never on the front page</h3>
+            <p class="column-note">Most Read captures, never on the front page.</p>
+            <ol class="return-list" id="read-examples"></ol>
+          </section>
+          <section aria-labelledby="promoted-examples-heading">
+            <h3 id="promoted-examples-heading">On the front page, never in Most Read</h3>
+            <p class="column-note">Front-page captures, never in Most Read.</p>
+            <ol class="return-list" id="promoted-examples"></ol>
+          </section>
+        </div>
+      </section>
+
       <section class="trend-block" aria-labelledby="theme-heading">
         <div class="section-intro">
-          <h2 id="theme-heading" class="rule-heading">By theme</h2>
+          <h2 id="theme-heading" class="rule-heading" tabindex="-1">By theme</h2>
           <p id="theme-intro">Themes come from each story’s latest label. Only themes with at least 30 compared stories are shown.</p>
         </div>
         <form class="trend-controls" id="theme-controls">
@@ -68,7 +94,7 @@ import Layout from "../layouts/Layout.astro";
             <select id="theme-sort">
               <option value="stories">Most stories</option>
               <option value="reach">Lowest reach</option>
-              <option value="unpromoted">Most read without promotion</option>
+              <option value="unpromoted">Most often in Most Read without promotion</option>
               <option value="lag">Longest delay</option>
             </select>
           </div>
@@ -81,7 +107,7 @@ import Layout from "../layouts/Layout.astro";
           </div>
           <p class="filter-count" id="theme-count" aria-live="polite">—</p>
         </form>
-        <div class="table-scroll data-scroll">
+        <div class="table-scroll data-scroll" tabindex="0" role="region" aria-label="Outcomes by theme table">
           <table class="data-table">
             <caption class="sr-only">Promotion and Most Read outcomes by theme</caption>
             <thead>
@@ -96,14 +122,15 @@ import Layout from "../layouts/Layout.astro";
             <tbody id="theme-table"></tbody>
           </table>
         </div>
+        <button class="text-button table-toggle" id="theme-toggle" type="button" aria-controls="theme-table" aria-expanded="false" hidden>Show all themes</button>
       </section>
 
       <section class="trend-block" aria-labelledby="month-heading">
         <div class="section-intro">
-          <h2 id="month-heading" class="rule-heading">By month</h2>
+          <h2 id="month-heading" class="rule-heading" tabindex="-1">By month</h2>
           <p>Stories grouped by the month they were first captured. Fewer captures means coarser timing and more missed appearances, so compare months with similar capture counts.</p>
         </div>
-        <div class="table-scroll data-scroll">
+        <div class="table-scroll data-scroll" tabindex="0" role="region" aria-label="Outcomes by month table">
           <table class="data-table">
             <caption class="sr-only">Promotion and Most Read outcomes by month</caption>
             <thead>
@@ -117,25 +144,6 @@ import Layout from "../layouts/Layout.astro";
             </thead>
             <tbody id="month-table"></tbody>
           </table>
-        </div>
-      </section>
-
-      <section class="trend-block" aria-labelledby="examples-heading">
-        <div class="section-intro">
-          <h2 id="examples-heading" class="rule-heading">Clearest cases</h2>
-          <p>The stories that stayed on one list for the most captures without ever appearing on the other.</p>
-        </div>
-        <div class="changing-columns example-columns">
-          <section aria-labelledby="read-examples-heading">
-            <h3 id="read-examples-heading">Read without promotion</h3>
-            <p class="column-note">Most Read captures, never on the front page.</p>
-            <ol class="return-list" id="read-examples"></ol>
-          </section>
-          <section aria-labelledby="promoted-examples-heading">
-            <h3 id="promoted-examples-heading">Promoted, never read</h3>
-            <p class="column-note">Front-page captures, never in Most Read.</p>
-            <ol class="return-list" id="promoted-examples"></ol>
-          </section>
         </div>
       </section>
 
@@ -159,6 +167,8 @@ import Layout from "../layouts/Layout.astro";
 
     // Months with fewer captures than this were not collected hourly.
     const PARTIAL_MONTH = 500;
+    const THEME_PREVIEW = 20;
+    let showAllThemes = false;
     const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
     const number = new Intl.NumberFormat("en-GB");
     const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
@@ -213,8 +223,15 @@ import Layout from "../layouts/Layout.astro";
         lag: (left, right) => (right.medianLagMinutes ?? -1) - (left.medianLagMinutes ?? -1),
       };
       rows.sort((left, right) => sorters[sort]!(left, right) || right.stories - left.stories);
-      element("#theme-count").textContent = query ? `${number.format(rows.length)} of ${number.format(themes.length)} themes` : `${number.format(themes.length)} themes`;
-      element("#theme-table").innerHTML = rows.map((row) => `<tr>
+      // A filter always shows every match; otherwise the table starts with the top rows.
+      const shown = query || showAllThemes ? rows : rows.slice(0, THEME_PREVIEW);
+      const order = (control("#theme-sort") as HTMLSelectElement).selectedOptions[0]?.text.toLowerCase() ?? "";
+      element("#theme-count").textContent = `${number.format(query ? rows.length : shown.length)} of ${number.format(themes.length)} themes, ${order}`;
+      const toggle = element("#theme-toggle");
+      toggle.hidden = Boolean(query) || rows.length <= THEME_PREVIEW;
+      toggle.textContent = showAllThemes ? `Show the top ${THEME_PREVIEW} themes` : `Show all ${number.format(rows.length)} themes`;
+      toggle.setAttribute("aria-expanded", String(showAllThemes));
+      element("#theme-table").innerHTML = shown.map((row) => `<tr>
         <th scope="row"><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a></th>
         <td class="numeric">${number.format(row.stories)}</td>
         ${shareCell(row.reachRate, "front")}
@@ -267,5 +284,6 @@ import Layout from "../layouts/Layout.astro";
     element("#theme-controls").addEventListener("submit", (event) => event.preventDefault());
     control("#theme-sort").addEventListener("change", renderThemes);
     control("#theme-filter").addEventListener("input", renderThemes);
+    element("#theme-toggle").addEventListener("click", () => { showAllThemes = !showAllThemes; renderThemes(); });
   </script>
 </Layout>

@@ -39,16 +39,43 @@ test("DeepSeek request defaults to bounded non-thinking mode", () => {
   assert.match(body.messages[0].content, /Never turn correlation, allegation, or concern into proven causation/);
 });
 
-test("DeepSeek request supports bounded high reasoning only", () => {
-  const high = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "high");
-  assert.deepEqual(high.thinking, { type: "enabled" });
-  assert.equal(high.reasoning_effort, "high");
-  assert.equal(high.max_tokens, 2500);
-  // The retired Deep analysis mode falls back to the fast default.
-  const retired = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "max");
-  assert.deepEqual(retired.thinking, { type: "disabled" });
-  assert.equal(retired.max_tokens, 900);
-  assert.equal(normalizeRequest({ query: "What changed?", evidence: [row], reasoning: "max" }).reasoning, "off");
+test("Reasoned answers use max effort with room for the reasoning", () => {
+  const reasoned = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "max");
+  assert.deepEqual(reasoned.thinking, { type: "enabled" });
+  assert.equal(reasoned.reasoning_effort, "max");
+  assert.equal(reasoned.max_tokens, 16_000);
+  // Earlier clients sent "high" for Reasoned; unknown modes fall back to Fast.
+  assert.equal(normalizeRequest({ query: "What changed?", evidence: [row], reasoning: "high" }).reasoning, "max");
+  assert.equal(normalizeRequest({ query: "What changed?", evidence: [row], reasoning: "deep" }).reasoning, "off");
+});
+
+test("evidence dates are labelled as archive fetch dates and coverage comes from the archive", () => {
+  const value = normalizeRequest({
+    query: "What changed?",
+    evidence: [{ ...row, date: "2026-07-01T09:30:00+00:00" }],
+    archive: { latest_capture: "2026-10-29T18:07:23+00:00" },
+  });
+  assert.equal(value.evidence[0].archived_on, "2026-07-01");
+  assert.equal("date" in value.evidence[0], false);
+  assert.equal(value.archive.latest_capture, "2026-10-29");
+  assert.equal(value.archive.coverage_start, "2025-04-17");
+  assert.equal(normalizeRequest({ query: "What changed?", evidence: [row], archive: { latest_capture: "soon" } }).archive.latest_capture, "unknown");
+  const body = deepSeekRequest(value.query, value.evidence, value.reasoning, value.archive);
+  assert.equal(JSON.parse(body.messages[1].content).archive.latest_capture, "2026-10-29");
+  assert.match(body.messages[0].content, /archived_on is the day this archive fetched the article/);
+});
+
+test("limitations returned as a list become one note", () => {
+  const value = parseCompletion({
+    choices: [{ message: { content: JSON.stringify({ answer: "A [1].", findings: [], limitations: ["No date is stated.", "Only one source."] }) } }],
+    usage: {},
+  }, 1, "max");
+  assert.equal(value.limitations, "No date is stated. Only one source.");
+});
+
+test("a truncated answer reports that it ran out of room", () => {
+  const payload = { choices: [{ finish_reason: "length", message: { content: "{\"answer\": \"Talks" } }], usage: {} };
+  assert.throws(() => parseCompletion(payload, 1, "max"), /ran out of room/);
 });
 
 test("peak pricing covers weekday UTC windows only", () => {
@@ -99,13 +126,13 @@ test("scheduled collection reports missing tokens and GitHub errors", async () =
 
 test("the reserved cost bounds the billed cost of the largest request", () => {
   const evidence = Array.from({ length: 20 }, (_, index) => ({ ...row, id: index + 1, summary: "x".repeat(1200) }));
-  const request = deepSeekRequest("q".repeat(400), evidence, "high");
+  const request = deepSeekRequest("q".repeat(400), evidence, "max", normalizeRequest({ query: "q".repeat(400), evidence: [row] }).archive);
   const reserved = maximumRequestCostUsd(request);
   const promptBytes = new TextEncoder().encode(JSON.stringify(request.messages)).length;
   const billed = parseCompletion({
     choices: [{ message: { content: JSON.stringify({ answer: "A [1].", findings: [], limitations: "" }) } }],
     usage: { prompt_tokens: promptBytes, prompt_cache_miss_tokens: promptBytes, completion_tokens: request.max_tokens },
-  }, 20, "high", new Date("2026-10-28T02:00:00Z")).usage.costUsd;
+  }, 20, "max", new Date("2026-10-28T02:00:00Z")).usage.costUsd;
   assert.ok(reserved >= billed);
   assert.ok(reserved < 0.05);
 });

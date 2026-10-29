@@ -38,12 +38,12 @@ import Layout from "../layouts/Layout.astro";
       <div class="changing-columns findings-columns">
         <section aria-labelledby="rising-heading">
           <h3 id="rising-heading">Rising themes</h3>
-          <p class="column-note">Change in share of labelled coverage between two 14-day windows.</p>
+          <p class="column-note">Change in share of labelled coverage between two 14-day windows, in percentage points.</p>
           <ul id="rising-themes" class="change-list"><li class="empty">Loading…</li></ul>
         </section>
         <section aria-labelledby="surface-heading">
           <h3 id="surface-heading">Front page vs Most Read</h3>
-          <p class="column-note">Themes with the largest gap in share, and the list they lean towards.</p>
+          <p class="column-note">Themes with the largest gap in share, in percentage points, and the list they lean towards.</p>
           <ul id="surface-differences" class="change-list"><li class="empty">Loading…</li></ul>
         </section>
         <section aria-labelledby="forms-heading">
@@ -75,7 +75,7 @@ import Layout from "../layouts/Layout.astro";
         <svg id="trend-chart" class="plot" role="img" aria-labelledby="trend-caption"></svg>
         <details class="chart-table">
           <summary>Show daily figures as a table</summary>
-          <div class="table-scroll">
+          <div class="table-scroll" tabindex="0" role="region" aria-label="Daily figures table">
             <table><thead><tr><th scope="col">Date (UTC)</th><th scope="col">Articles</th></tr></thead><tbody id="trend-table"></tbody></table>
           </div>
         </details>
@@ -98,13 +98,15 @@ import Layout from "../layouts/Layout.astro";
             </span>
           </div>
           <ol class="event-list" id="event-list" aria-label="Recurring stories"></ol>
+          <a class="text-link timeline-jump" href="#event-title">Go to the selected timeline</a>
+          <p class="sr-only" id="event-status" role="status"></p>
           <nav class="pager" aria-label="Recurring story pages">
             <button class="pager-button" id="previous-event-page" type="button"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5" /></svg>Previous</button>
             <span id="event-page-status" aria-live="polite">—</span>
             <button class="pager-button" id="next-event-page" type="button">Next<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg></button>
           </nav>
         </div>
-        <aside class="event-detail" id="event-detail" aria-labelledby="event-title"><p class="empty">Choose a story to see its article timeline.</p></aside>
+        <section class="event-detail" id="event-detail" aria-label="Selected story timeline"><p class="empty">Choose a story to see its article timeline.</p></section>
       </div>
     </section>
   </div>
@@ -142,6 +144,8 @@ import Layout from "../layouts/Layout.astro";
     let eventFilterTimer = 0;
     let lastTrend: { rows: TrendSeriesRow[]; value: string } | null = null;
     let revealDetail = false;
+    // Only a visitor's own choice is announced, not the first story selected on load.
+    let announceEvent = false;
     // Days with at least one homepage capture; a signal cannot be measured on any other day.
     let collectedDays = new Set<string>();
 
@@ -195,7 +199,7 @@ import Layout from "../layouts/Layout.astro";
 
     function renderWeekly(weekly: WeeklySummaries) {
       if (!weekly.weekStart || !weekly.themes.length) {
-        element("#weekly-window").textContent = "Weekly summaries are written each Monday once enough labelled articles exist.";
+        element("#weekly-window").textContent = "No weekly summary has been published yet. Summaries of the previous seven days are written each Monday at 12:47 UTC, and this section fills after the next run.";
         return;
       }
       element("#weekly-window").textContent = `${date.format(new Date(weekly.weekStart))} to ${date.format(new Date(weekly.weekEnd ?? weekly.weekStart))}: the themes with the most labelled articles.`;
@@ -214,7 +218,7 @@ import Layout from "../layouts/Layout.astro";
       const labelled = findings.window ? findings.window.recentLabelledArticles + findings.window.previousLabelledArticles : 0;
       // On a small sample, two decimals would present noise as precision; show whole points and counts.
       const small = labelled < LOW_SAMPLE;
-      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(small ? 0 : 2)} pp`;
+      const signed = (value: number) => `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(small ? 0 : 2)} points`;
       if (findings.window) {
         element("#findings-window").innerHTML = `${date.format(new Date(findings.window.recentStart))} to ${date.format(new Date(findings.window.recentEnd))}, compared with the previous 14 days. ${number.format(labelled)} labelled article versions; shares are normalised by labelled count.${labelled < LOW_SAMPLE
           ? `<span class="sample-warning"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>Too few labelled articles for reliable comparisons. Collection gaps reduce the sample; treat these changes as provisional.</span>`
@@ -227,7 +231,7 @@ import Layout from "../layouts/Layout.astro";
         || `<li class="empty">No theme rose between the two windows.</li>`;
       element("#surface-differences").innerHTML = findings.surfaceDifferences.slice(0, 6).map((row) => {
         const towards = row.differencePercentagePoints >= 0 ? "most_read" : "front_page";
-        return `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(small ? 0 : 2)} pp</span></li>`;
+        return `<li><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a><span class="figure lean-${towards}">${SURFACE_NAME[towards]} +${Math.abs(row.differencePercentagePoints).toFixed(small ? 0 : 2)} points</span></li>`;
       }).join("") || `<li class="empty">More labelled coverage is needed for this comparison.</li>`;
       element("#story-forms").innerHTML = findings.storyForms.slice(0, 7).map((row) =>
         `<li class="share-row"><span>${escape(label(row.storyForm))}</span><span class="share-bar" aria-hidden="true"><i style="width:${Math.min(row.share, 100)}%"></i></span><span class="figure">${row.share.toFixed(1)}%</span></li>`).join("")
@@ -342,6 +346,10 @@ import Layout from "../layouts/Layout.astro";
         </dl>
         <section class="detail-section" aria-labelledby="timeline-heading"><h4 id="timeline-heading">Timeline</h4><ol class="event-timeline">${timeline}</ol></section>`;
       element("#event-list").querySelectorAll<HTMLButtonElement>("button[data-id]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.id === event.cluster_id)));
+      if (announceEvent) {
+        announceEvent = false;
+        element("#event-status").textContent = `Showing the timeline for ${eventLabel(event.label)}: ${number.format(event.article_count)} articles.`;
+      }
     }
 
     function openEvent(id: string) {
@@ -415,6 +423,7 @@ import Layout from "../layouts/Layout.astro";
     element("#event-list").addEventListener("click", (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-id]");
       if (button?.dataset.id) {
+        announceEvent = true;
         requestEventDetail(button.dataset.id);
         revealDetail = window.matchMedia("(max-width: 900px)").matches;
       }

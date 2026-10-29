@@ -8,7 +8,7 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:4321",
   "http://127.0.0.1:4321",
 ]);
-const PROMPT_VERSION = "2026-07-14-v2";
+const PROMPT_VERSION = "2026-10-29-v3";
 const requestsByClient = new Map();
 const DEFAULT_DAILY_BUDGET_USD = 0.5;
 const BUDGET_EXHAUSTED = "Today's shared answer budget has been used. Answers resume after midnight UTC.";
@@ -68,7 +68,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/health") {
       const budget = answerBudget(env);
       const answerBudgetStatus = budget ? { limitUsd: dailyLimitUsd(env), spentUsd: await budget.spent(utcDay()) } : null;
-      return json({ status: "ok", model: MODEL, runtime: "cloudflare-workers", reasoningModes: ["off", "high"], answerBudget: answerBudgetStatus }, 200, origin);
+      return json({ status: "ok", model: MODEL, runtime: "cloudflare-workers", reasoningModes: ["off", "max"], answerBudget: answerBudgetStatus }, 200, origin);
     }
     if (request.method !== "POST" || url.pathname !== "/api/research") {
       return json({ detail: "Not found." }, 404, origin);
@@ -98,7 +98,7 @@ export default {
     // Without the shared ledger there is no spending limit, so the paid call is refused.
     if (!budget) return json({ detail: "The shared answer budget is not configured." }, 503, origin);
 
-    const body = deepSeekRequest(normalized.query, normalized.evidence, normalized.reasoning);
+    const body = deepSeekRequest(normalized.query, normalized.evidence, normalized.reasoning, normalized.archive);
     const day = utcDay();
     const reservedUsd = maximumRequestCostUsd(body);
     const reservation = await budget.reserve(day, reservedUsd, dailyLimitUsd(env));

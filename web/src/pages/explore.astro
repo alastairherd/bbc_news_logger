@@ -241,8 +241,13 @@ import Layout from "../layouts/Layout.astro";
       const grid = [1, 5, 10].map((position) => `<line class="grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(position)}" y2="${y(position)}"/><text x="${pad.left - 8}" y="${y(position) + 4}" text-anchor="end">${position}</text>`).join("");
       const axis = `<text x="${pad.left}" y="${height - 6}">${dayMonth.format(new Date(from))}</text><text x="${width - pad.right}" y="${height - 6}" text-anchor="end">${dayMonth.format(new Date(latest))}</text>`;
       const surfaces = new Set(points.map((point) => point.surface));
+      const rows = [...points].sort((a, b) => b.observed_at.localeCompare(a.observed_at)).map((point) =>
+        `<tr><th scope="row">${dateTime.format(new Date(point.observed_at))}</th><td>${SURFACE_NAME[point.surface] ?? escape(point.surface)}</td><td>#${point.position}</td></tr>`).join("");
       return `<svg class="position-chart" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Captured positions from ${shortDate.format(new Date(from))} to ${shortDate.format(new Date(latest))}: ${points.length} captures">${grid}${axis}${series}</svg>
-        <p class="legend">${[...surfaces].map((surface) => `<span class="legend-${surface === "front_page" ? "front" : "read"}">${SURFACE_NAME[surface]}</span>`).join("")}</p>`;
+        <p class="legend">${[...surfaces].map((surface) => `<span class="legend-${surface === "front_page" ? "front" : "read"}">${SURFACE_NAME[surface]}</span>`).join("")}</p>
+        <details class="chart-table"><summary>Show positions as a table</summary><div class="table-scroll" tabindex="0" role="region" aria-label="Positions table"><table>
+          <thead><tr><th scope="col">Capture (UTC)</th><th scope="col">List</th><th scope="col">Position</th></tr></thead><tbody>${rows}</tbody>
+        </table></div></details>`;
     }
 
     // `analysed` is false once the semantic index has answered without this story in it.

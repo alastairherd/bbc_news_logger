@@ -49,9 +49,9 @@ import Layout from "../layouts/Layout.astro";
           <label for="research-depth">Answer depth</label>
           <select id="research-depth" aria-describedby="depth-help">
             <option value="off">Fast</option>
-            <option value="high">Reasoned</option>
+            <option value="max">Reasoned</option>
           </select>
-          <small id="depth-help">Reasoned answers take longer and use more tokens.</small>
+          <small id="depth-help">Reasoned answers think at full depth first. They can take a minute or more.</small>
         </div>
       </div>
     </form>
@@ -72,7 +72,7 @@ import Layout from "../layouts/Layout.astro";
   <script>
     import { titleParts } from "../lib/titles";
 
-    interface Manifest { semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number; searchDocumentCount?: number } }
+    interface Manifest { latestObservationAt?: string | null; semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number; searchDocumentCount?: number } }
     interface SearchDocument { story_id: string; title: string; url: string; fetched_at: string; surfaces: string[]; best_position: number | null; summary: string; topic: string; themes: string[]; story_form: string; event_type: string }
     interface SearchResult { document: SearchDocument; score: number }
     interface ResearchFinding { claim: string; sources: number[] }
@@ -91,6 +91,9 @@ import Layout from "../layouts/Layout.astro";
     let askAfterSearch = false;
     let lastSearchResults: SearchResult[] = [];
     let requestId = 0;
+    // Date of the newest capture, so the answer service can tell the model where the archive ends.
+    let latestCapture = "";
+    let lastProgressStep = -1;
 
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
@@ -159,6 +162,7 @@ import Layout from "../layouts/Layout.astro";
       }
       pendingSearch = false;
       requestId += 1;
+      if (!ask) { const panel = element("#research-answer"); panel.hidden = true; panel.innerHTML = ""; }
       element("#search-summary").textContent = `Comparing your ${ask ? "question" : "search"} with ${number.format(Number(element("#model-state").dataset.count ?? 0))} stories…`;
       element("#semantic-results").innerHTML = `<li class="skeleton skeleton-list" aria-hidden="true"><i></i><i></i><i></i></li>`;
       if (ask) {
@@ -182,7 +186,7 @@ import Layout from "../layouts/Layout.astro";
             <h3><a href="${escape(document.url)}">${headline(document.title, document.url)}<span class="sr-only"> (opens BBC News)</span></a></h3>
             <p class="story-meta"><span>${date.format(new Date(document.fetched_at))}</span>${document.surfaces.length ? `<span>${document.surfaces.map((surface) => `<span class="list-tag list-${surface}">${SURFACE_NAME[surface] ?? escape(surface)}</span>`).join(" ")}</span>` : `<span>Article archive only</span>`}<span>${escape(label(document.story_form))}</span><span>Similarity ${score.toFixed(2)}</span></p>
             ${document.summary ? `<p class="source-summary">${escape(document.summary)}</p>` : ""}
-            <p class="story-meta"><span>${escape(label(document.topic))}</span>${document.themes.slice(0, 4).map((theme) => `<span>${escape(label(theme))}</span>`).join("")}<span><a class="meta-link" href="${base}explore/?story=${encodeURIComponent(document.story_id)}">Archive record</a></span></p>
+            <p class="story-meta"><span>${escape(label(document.topic))}</span>${document.themes.slice(0, 4).map((theme) => `<span>${escape(label(theme))}</span>`).join("")}<span><a class="meta-link" href="${base}explore/?story=${encodeURIComponent(document.story_id)}">Archive record<span class="sr-only">: ${escape(titleParts(document.title, document.url).text)}</span></a></span></p>
           </div>
         </li>`).join("") : `<li class="empty">Try broader wording or clear a filter.</li>`;
       if (askAfterSearch) {
@@ -205,12 +209,12 @@ import Layout from "../layouts/Layout.astro";
       });
     }
 
-    function reasoningDepth(): "off" | "high" {
-      return control("#research-depth").value === "high" ? "high" : "off";
+    function reasoningDepth(): "off" | "max" {
+      return control("#research-depth").value === "max" ? "max" : "off";
     }
 
     function reasoningLabel(value: string): string {
-      return value === "high" ? "Reasoned" : "Fast";
+      return value === "max" || value === "high" ? "Reasoned" : "Fast";
     }
 
     async function requestResearch(query: string, evidence: Record<string, unknown>[], signal: AbortSignal): Promise<ResearchResponse> {
@@ -218,7 +222,7 @@ import Layout from "../layouts/Layout.astro";
       const response = await fetch(researchApi, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, evidence, reasoning: reasoningDepth() }),
+        body: JSON.stringify({ query, evidence, reasoning: reasoningDepth(), archive: { latest_capture: latestCapture } }),
         signal,
       });
       const value = await response.json().catch(() => ({})) as ResearchResponse & { detail?: string };
@@ -232,26 +236,30 @@ import Layout from "../layouts/Layout.astro";
       if (!query || !lastSearchResults.length) return;
       panel.hidden = false;
       const depth = reasoningDepth();
-      panel.innerHTML = `<p class="answer-state">Reading ${Math.min(20, lastSearchResults.length)} sources in ${reasoningLabel(depth).toLowerCase()} mode…</p>`;
+      panel.innerHTML = `<p class="answer-state">Reading ${Math.min(20, lastSearchResults.length)} sources in ${reasoningLabel(depth).toLowerCase()} mode${depth === "max" ? ". Reasoned answers can take a minute or more" : ""}…</p>`;
+      // The answer belongs to this search; if another search replaces the sources, it is discarded.
+      const askId = requestId;
       const evidence = lastSearchResults.slice(0, 20).map(({ document, score }) => ({
-        title: titleParts(document.title, document.url).text, url: document.url, date: document.fetched_at,
+        title: titleParts(document.title, document.url).text, url: document.url, archived_on: document.fetched_at.slice(0, 10),
         summary: document.summary, topic: document.topic, themes: document.themes,
         story_form: document.story_form, event_type: document.event_type, similarity: score,
       }));
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), 90_000);
+      const timeout = window.setTimeout(() => controller.abort(), 180_000);
       try {
         const value = await requestResearch(query, evidence, controller.signal);
+        if (askId !== requestId) return;
         const findings = value.findings?.length
           ? `<h3>Findings</h3><ol class="answer-findings">${value.findings.map((finding) => `<li><span>${escape(finding.claim)}</span><span class="citations">${sourceLinks(finding.sources)}</span></li>`).join("")}</ol>`
           : "";
         const cost = value.usage?.costUsd ? ` · $${value.usage.costUsd.toFixed(5)}` : "";
         panel.innerHTML = `<div class="answer-head"><h2>Cited answer</h2><p>${escape(value.model)} · ${reasoningLabel(value.reasoning ?? depth)}${value.cached ? " · cached" : cost}</p></div>
           <p class="answer-copy">${citedText(value.answer)}</p>${findings}
-          ${value.limitations ? `<p class="answer-limit"><strong>Limits.</strong> ${escape(value.limitations)}</p>` : ""}
+          ${value.limitations ? `<p class="answer-limit"><strong>Limits.</strong> ${citedText(value.limitations)}</p>` : ""}
           <p class="source-note">Generated from the numbered sources below and can be wrong. Check each claim against its source. Model reasoning is neither stored nor shown.</p>`;
       } catch (error) {
-        const message = error instanceof DOMException && error.name === "AbortError" ? "The answer service did not respond within 90 seconds." : error instanceof Error ? error.message : "The answer service is unavailable.";
+        if (askId !== requestId) return;
+        const message = error instanceof DOMException && error.name === "AbortError" ? "The answer service did not respond within three minutes." : error instanceof Error ? error.message : "The answer service is unavailable.";
         panel.innerHTML = `<div class="error-panel">${alertIcon}<div><p><strong>Error:</strong> no answer was generated. ${escape(message)}</p>
           <p>The sources below are still available. Try again later.</p>
           <button class="button secondary" id="retry-research" type="button">Try again</button></div></div>`;
@@ -273,7 +281,8 @@ import Layout from "../layouts/Layout.astro";
       if (message.type === "model-progress") {
         const progress = Number(message.progress ?? (message.total ? message.loaded / message.total * 100 : 0));
         const bar = document.querySelector<HTMLProgressElement>("#model-progress"); if (bar && Number.isFinite(progress)) bar.value = Math.max(0, Math.min(100, progress));
-        setModelState(`Loading${progress ? ` · ${Math.round(progress)}%` : ""}`);
+        const step = Math.floor(progress / 25);
+        if (step !== lastProgressStep) { lastProgressStep = step; setModelState(`Loading${progress ? ` · ${Math.min(100, step * 25)}%` : ""}`); }
       }
       if (message.type === "model-ready") {
         semanticReady = true; setModelState("Ready", "ready");
@@ -304,6 +313,7 @@ import Layout from "../layouts/Layout.astro";
       element("#search-summary").textContent = "The linked question is ready. Choose Ask the archive or Find sources only to run it.";
     }
     fetch(`${base}data/manifest.json`).then((response) => response.json()).then((manifest: Manifest) => {
+      latestCapture = String(manifest.latestObservationAt ?? "").slice(0, 10);
       const semantic = manifest.semantics;
       if (!semantic) return;
       element("#coverage").textContent = `${semantic.coveragePercent.toFixed(1)}% of article versions`;

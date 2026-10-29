@@ -18,6 +18,7 @@ from bbc_news_logger.deepseek import (
     RunBudget,
     is_peak_pricing,
     maximum_request_cost_usd,
+    normalize_story_form,
     parse_signal_batch,
     parse_signals,
     parse_usage,
@@ -285,3 +286,14 @@ def test_complete_json_returns_the_object_and_its_usage() -> None:
         DeepSeekClient("key", session=session).complete_json(
             system_prompt="Return JSON.", user_content="Articles", max_tokens=50
         )
+
+
+def test_story_forms_are_kept_to_the_prompt_vocabulary() -> None:
+    assert normalize_story_form("Breaking News") == "breaking_news"
+    assert normalize_story_form("upate") == "update"
+    assert normalize_story_form("breakking_news") == "breaking_news"
+    assert normalize_story_form("first-person account") == "feature"
+    assert normalize_story_form("features") == "feature"
+    assert normalize_story_form("warning") == "other"
+    assert normalize_story_form(None) == "other"
+    assert parse_signals(signal_json().replace('"update"', '"upate"')).story_form == "update"
