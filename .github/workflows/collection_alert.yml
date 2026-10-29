@@ -1,0 +1,73 @@
+name: Alert on stalled collection
+
+# The research Worker dispatches this when no capture has reached Hugging Face for three hours.
+# The schedule is a backstop for when the Worker itself stops running.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 */4 * * *"
+
+concurrency:
+  group: collection-alert
+  cancel-in-progress: false
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: collection-alert
+    steps:
+      - name: Find the latest published capture
+        id: capture
+        run: |
+          # Every published capture is a commit titled "Update observations for <date>".
+          commits="$(curl -fsS 'https://huggingface.co/api/datasets/AlastairH/bbc-news-logger/commits/main?limit=100')"
+          latest="$(jq -r '[.[] | select(.title | startswith("Update observations for "))][0].date // empty' <<<"$commits")"
+          # With no capture among the listed commits, the oldest one bounds the capture's age.
+          reference="${latest:-$(jq -r '.[-1].date // empty' <<<"$commits")}"
+          [[ -n "$reference" ]] || { echo "::error::Hugging Face returned no commits."; exit 1; }
+          age=$(( $(date -u +%s) - $(date -u -d "$reference" +%s) ))
+          echo "latest=${latest:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "hours=$(( age / 3600 ))" >> "$GITHUB_OUTPUT"
+          if (( age > 3 * 3600 )); then echo "stale=true" >> "$GITHUB_OUTPUT"; fi
+          echo "Latest capture: ${latest:-not among the last 100 commits}, $(( age / 60 )) minutes ago."
+      - name: Open an alert issue
+        if: steps.capture.outputs.stale == 'true'
+        env:
+          LATEST: ${{ steps.capture.outputs.latest }}
+          HOURS: ${{ steps.capture.outputs.hours }}
+        run: |
+          open="$(gh issue list --label "$LABEL" --state open --json number --jq length)"
+          if [[ "$open" != "0" ]]; then
+            echo "::notice::An alert issue is already open."
+            exit 0
+          fi
+          gh label create "$LABEL" --color B80000 --description "Hourly collection has stalled" --force
+          gh issue create --label "$LABEL" \
+            --title "Collection stalled: no capture for ${HOURS} hours" \
+            --body "$(cat <<EOF
+          No BBC News capture has reached the Hugging Face dataset for at least ${HOURS} hours.
+          Latest capture commit: \`${LATEST}\`.
+
+          Missed hours cannot be backfilled. Check:
+          - [Collection runs](https://github.com/${GH_REPO}/actions/workflows/scrape_bbc.yml)
+          - [Worker deployments](https://github.com/${GH_REPO}/actions/workflows/research_worker.yml) and the Worker's cron trigger in Cloudflare
+          - [Dataset commits](https://huggingface.co/datasets/AlastairH/bbc-news-logger/commits/main)
+
+          The next successful collection run closes this issue.
+          EOF
+          )"
+      - name: Close alerts once captures resume
+        if: steps.capture.outputs.stale != 'true'
+        env:
+          LATEST: ${{ steps.capture.outputs.latest }}
+        run: |
+          for number in $(gh issue list --label "$LABEL" --state open --json number --jq '.[].number'); do
+            gh issue close "$number" --comment "Captures have resumed. Latest capture commit: \`${LATEST}\`."
+          done
