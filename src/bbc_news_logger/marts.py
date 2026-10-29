@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 import tempfile
 from array import array
 from collections import Counter, defaultdict
@@ -339,14 +340,11 @@ def _semantic_findings(
     }
 
 
-def _semantic_payloads(
-    *,
-    articles: pa.Table | None,
-    signals: pa.Table | None,
-    embeddings: pa.Table | None,
-    events: pa.Table | None,
-    stories: list[dict[str, object]],
-) -> tuple[dict[str, object], bytes, dict[str, object]]:
+def _labelled_articles(
+    articles: pa.Table | None, signals: pa.Table | None
+) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]:
+    """Latest successful article fetch and latest label for each content hash."""
+
     article_by_hash: dict[str, dict[str, object]] = {}
     if articles is not None:
         for row in articles.to_pylist():
@@ -364,7 +362,36 @@ def _semantic_payloads(
             existing is None or row["generated_at"] > existing["generated_at"]
         ):
             signal_by_hash[content_hash] = row
+    return article_by_hash, signal_by_hash
 
+
+def _story_themes(
+    article_by_hash: dict[str, dict[str, object]],
+    signal_by_hash: dict[str, dict[str, object]],
+) -> dict[str, list[str]]:
+    """Themes of each story's most recently fetched labelled version."""
+
+    latest: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
+    for content_hash in article_by_hash.keys() & signal_by_hash.keys():
+        article = article_by_hash[content_hash]
+        story_id = str(article["story_id"])
+        existing = latest.get(story_id)
+        if existing is None or article["fetched_at"] > existing[0]["fetched_at"]:
+            latest[story_id] = (article, signal_by_hash[content_hash])
+    return {
+        story_id: [str(theme) for theme in signal.get("themes") or []]
+        for story_id, (_, signal) in latest.items()
+    }
+
+
+def _semantic_payloads(
+    *,
+    article_by_hash: dict[str, dict[str, object]],
+    signal_by_hash: dict[str, dict[str, object]],
+    embeddings: pa.Table | None,
+    events: pa.Table | None,
+    stories: list[dict[str, object]],
+) -> tuple[dict[str, object], bytes, dict[str, object]]:
     counts: Counter[tuple[str, str, str]] = Counter()
     for content_hash, signal in signal_by_hash.items():
         article = article_by_hash.get(content_hash)
@@ -460,6 +487,201 @@ def _semantic_payloads(
     )
 
 
+# A story first seen this recently may still reach the other list, so it is not classified yet.
+PROMOTION_SETTLE_HOURS = 24
+PROMOTION_THEME_MINIMUM = 30
+PROMOTION_EXAMPLES = 10
+# Signed minutes from first front-page capture to first Most Read capture. Captures are about an
+# hour apart at best, so the buckets are no finer than that.
+LAG_BUCKETS = (
+    ("read_first", "In Most Read before the front page", None, -1),
+    ("same_capture", "Same capture", 0, 0),
+    ("within_3_hours", "Within 3 hours", 1, 180),
+    ("within_12_hours", "3 to 12 hours later", 181, 720),
+    ("later", "More than 12 hours later", 721, None),
+)
+
+
+def _share(part: int, whole: int) -> float | None:
+    return round(part / whole * 100, 1) if whole else None
+
+
+def _outcome_counts(rows: list[dict[str, object]]) -> dict[str, object]:
+    counts = Counter(str(row["outcome"]) for row in rows)
+    promoted_only, read_only, both = counts["promoted_only"], counts["read_only"], counts["both"]
+    return {
+        "stories": len(rows),
+        "promotedOnly": promoted_only,
+        "readOnly": read_only,
+        "both": both,
+        # Of the stories promoted on the front page, the share that also reached Most Read.
+        "reachRate": _share(both, both + promoted_only),
+        # Of the stories in Most Read, the share never captured on the front page.
+        "unpromotedShare": _share(read_only, read_only + both),
+    }
+
+
+def _promotion_attention(
+    con: duckdb.DuckDBPyConnection, story_themes: dict[str, list[str]]
+) -> dict[str, object]:
+    """Compare front-page promotion with Most Read attention, story by story."""
+
+    # A capture that recorded only one list cannot show whether a story was on the other, so
+    # only captures holding both lists are compared.
+    con.execute(
+        """
+        CREATE OR REPLACE TEMP VIEW paired AS
+        SELECT * FROM observations
+        WHERE scrape_id IN (
+            SELECT scrape_id FROM observations
+            GROUP BY scrape_id
+            HAVING count(DISTINCT surface) = 2
+        )
+        """
+    )
+    single_surface = con.execute(
+        "SELECT count(DISTINCT scrape_id) FROM observations "
+        "WHERE scrape_id NOT IN (SELECT scrape_id FROM paired)"
+    ).fetchone()[0]
+    rows = _records(
+        con.execute(
+            f"""
+            WITH by_story AS (
+                SELECT
+                    story_id,
+                    arg_max(title, observed_at) AS title,
+                    arg_max(url, observed_at) AS url,
+                    min(observed_at) AS first_seen,
+                    min(observed_at) FILTER (WHERE surface = 'front_page') AS first_front_page,
+                    min(observed_at) FILTER (WHERE surface = 'most_read') AS first_most_read,
+                    count(DISTINCT scrape_id) FILTER (WHERE surface = 'front_page')
+                        AS front_page_captures,
+                    count(DISTINCT scrape_id) FILTER (WHERE surface = 'most_read')
+                        AS most_read_captures,
+                    min(position) FILTER (WHERE surface = 'front_page') AS best_front_page,
+                    min(position) FILTER (WHERE surface = 'most_read') AS best_most_read
+                FROM paired
+                GROUP BY story_id
+            )
+            SELECT
+                *,
+                CASE
+                    WHEN first_most_read IS NULL THEN 'promoted_only'
+                    WHEN first_front_page IS NULL THEN 'read_only'
+                    ELSE 'both'
+                END AS outcome,
+                date_diff('minute', first_front_page, first_most_read) AS lag_minutes,
+                strftime(first_seen, '%Y-%m') AS month
+            FROM by_story
+            WHERE first_seen <= (SELECT max(observed_at) FROM paired)
+                - INTERVAL {PROMOTION_SETTLE_HOURS} HOUR
+            """
+        )
+    )
+    unsettled = con.execute(
+        f"""
+        SELECT count(*) FROM (
+            SELECT story_id FROM paired GROUP BY story_id
+            HAVING min(observed_at) > (SELECT max(observed_at) FROM paired)
+                - INTERVAL {PROMOTION_SETTLE_HOURS} HOUR
+        )
+        """
+    ).fetchone()[0]
+    captures_by_month = dict(
+        con.execute(
+            "SELECT strftime(observed_at, '%Y-%m'), count(DISTINCT scrape_id) "
+            "FROM paired GROUP BY 1"
+        ).fetchall()
+    )
+
+    both = [row for row in rows if row["outcome"] == "both"]
+    lag = []
+    for key, label, low, high in LAG_BUCKETS:
+        count = sum(
+            1
+            for row in both
+            if (low is None or row["lag_minutes"] >= low)
+            and (high is None or row["lag_minutes"] <= high)
+        )
+        lag.append(
+            {"bucket": key, "label": label, "count": count, "share": _share(count, len(both))}
+        )
+
+    by_theme: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
+    for row in rows:
+        for theme in set(story_themes.get(str(row["story_id"]), ())):
+            by_theme[theme].append(row)
+    themes = []
+    for theme, theme_rows in by_theme.items():
+        if len(theme_rows) < PROMOTION_THEME_MINIMUM:
+            continue
+        promoted_first = [
+            int(row["lag_minutes"])
+            for row in theme_rows
+            if row["outcome"] == "both" and int(row["lag_minutes"]) > 0
+        ]
+        themes.append(
+            {
+                "theme": theme,
+                **_outcome_counts(theme_rows),
+                "promotedFirst": len(promoted_first),
+                "medianLagMinutes": statistics.median(promoted_first) if promoted_first else None,
+            }
+        )
+    themes.sort(key=lambda row: (-int(row["stories"]), str(row["theme"])))
+
+    by_month: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
+    for row in rows:
+        by_month[str(row["month"])].append(row)
+    months = [
+        {
+            "month": month,
+            "captures": int(captures_by_month.get(month, 0)),
+            **_outcome_counts(month_rows),
+        }
+        for month, month_rows in sorted(by_month.items())
+    ]
+
+    def example(row: dict[str, object], surface: str) -> dict[str, object]:
+        return {
+            "storyId": row["story_id"],
+            "title": row["title"],
+            "url": row["url"],
+            "firstSeen": row["first_seen"],
+            "captures": row[f"{surface}_captures"],
+            "bestPosition": row[f"best_{surface}"],
+        }
+
+    def strongest(outcome: str, surface: str) -> list[dict[str, object]]:
+        candidates = [row for row in rows if row["outcome"] == outcome]
+        candidates.sort(
+            key=lambda row: (
+                -int(row[f"{surface}_captures"]),
+                int(row[f"best_{surface}"]),
+                str(row["first_seen"]),
+            )
+        )
+        return [example(row, surface) for row in candidates[:PROMOTION_EXAMPLES]]
+
+    return {
+        "schemaVersion": 1,
+        "settleHours": PROMOTION_SETTLE_HOURS,
+        "firstSeen": min((str(row["first_seen"]) for row in rows), default=None),
+        "lastSeen": max((str(row["first_seen"]) for row in rows), default=None),
+        "unsettledStories": int(unsettled),
+        "singleSurfaceCaptures": int(single_surface),
+        "totals": _outcome_counts(rows),
+        "labelledStories": sum(1 for row in rows if str(row["story_id"]) in story_themes),
+        "lag": lag,
+        "themes": themes,
+        "months": months,
+        "examples": {
+            "readOnly": strongest("read_only", "most_read"),
+            "promotedOnly": strongest("promoted_only", "front_page"),
+        },
+    }
+
+
 def build_marts(
     table: pa.Table,
     output_dir: Path,
@@ -552,36 +774,10 @@ def build_marts(
             """
         )
     )
-    lag = _records(
-        con.execute(
-            """
-            WITH first_seen AS (
-                SELECT
-                    story_id,
-                    min(CASE WHEN surface = 'front_page' THEN observed_at END) AS first_front_page,
-                    min(CASE WHEN surface = 'most_read' THEN observed_at END) AS first_most_read,
-                    arg_max(title, observed_at) AS title,
-                    arg_max(url, observed_at) AS url
-                FROM observations
-                GROUP BY story_id
-            )
-            SELECT
-                story_id,
-                title,
-                url,
-                first_front_page,
-                first_most_read,
-                date_diff('minute', first_front_page, first_most_read) AS lag_minutes
-            FROM first_seen
-            WHERE first_front_page IS NOT NULL AND first_most_read IS NOT NULL
-            ORDER BY first_most_read DESC
-            """
-        )
-    )
-
+    article_by_hash, signal_by_hash = _labelled_articles(articles, signals)
     semantic_payloads, semantic_vectors, semantic_manifest = _semantic_payloads(
-        articles=articles,
-        signals=signals,
+        article_by_hash=article_by_hash,
+        signal_by_hash=signal_by_hash,
         embeddings=embeddings,
         events=events,
         stories=stories,
@@ -590,7 +786,9 @@ def build_marts(
         "stories.json": stories,
         "rank-series.json": rank_series,
         "daily.json": daily,
-        "surface-lag.json": lag,
+        "promotion-attention.json": _promotion_attention(
+            con, _story_themes(article_by_hash, signal_by_hash)
+        ),
         "weekly-summaries.json": _latest_week(weekly),
         **semantic_payloads,
     }

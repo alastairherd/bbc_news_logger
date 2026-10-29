@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pyarrow as pa
 
+from bbc_news_logger import marts
 from bbc_news_logger.marts import _semantic_findings, build_marts
 from bbc_news_logger.models import Observation
 from bbc_news_logger.semantics import (
@@ -40,7 +41,7 @@ def test_build_marts_produces_static_research_payloads(tmp_path) -> None:
         "stories.json",
         "rank-series.json",
         "daily.json",
-        "surface-lag.json",
+        "promotion-attention.json",
         "weekly-summaries.json",
         "semantic-trends.json",
         "recurring-events.json",
@@ -51,8 +52,10 @@ def test_build_marts_produces_static_research_payloads(tmp_path) -> None:
     assert manifest["semantics"]["coveragePercent"] == 0.0
     assert manifest["semantics"]["searchDocumentCount"] == 0
     assert (tmp_path / "semantic-vectors.i8").read_bytes() == b""
-    lag = json.loads((tmp_path / "surface-lag.json").read_text())
-    assert lag[0]["lag_minutes"] == 120
+    # These two observations come from separate single-list captures, so neither is compared.
+    promotion = json.loads((tmp_path / "promotion-attention.json").read_text())
+    assert promotion["singleSurfaceCaptures"] == 2
+    assert promotion["totals"]["stories"] == 0
 
 
 def test_build_marts_quantizes_aligned_browser_search_index(tmp_path) -> None:
@@ -198,3 +201,118 @@ def test_weekly_mart_publishes_the_newest_week_largest_themes_first(tmp_path) ->
     assert payload["weekStart"] == "2026-10-19"
     assert [theme["theme"] for theme in payload["themes"]] == ["budget", "energy"]
     assert payload["themes"][0]["evidence"][0]["storyId"] == "s1"
+
+
+def test_promotion_attention_compares_paired_captures(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(marts, "PROMOTION_THEME_MINIMUM", 1)
+    start = datetime(2026, 7, 1, 10, tzinfo=timezone.utc)
+
+    def capture(hours: int, front: list[str], read: list[str]) -> list[Observation]:
+        observed_at = start + timedelta(hours=hours)
+        scrape_id = f"scrape-{hours}"
+        return [
+            Observation.create(
+                observed_at=observed_at,
+                surface=surface,
+                position=position,
+                title=f"Story {slug}",
+                url=f"https://www.bbc.co.uk/news/articles/{slug}",
+                scrape_id=scrape_id,
+            )
+            for surface, slugs in (("front_page", front), ("most_read", read))
+            for position, slug in enumerate(slugs, start=1)
+        ]
+
+    rows = [
+        *capture(0, front=["same", "later", "promoted"], read=["same", "first", "unpromoted"]),
+        *capture(1, front=["first", "promoted"], read=["unpromoted"]),
+        *capture(2, front=["later"], read=["later"]),
+        # A capture that recorded only the front page says nothing about Most Read.
+        *capture(3, front=["single"], read=[]),
+        # First seen within the settling window, so it may still reach the other list.
+        *capture(48, front=["same", "fresh"], read=["fresh"]),
+    ]
+    later = rows[1]
+    article = {
+        "snapshot_id": "snapshot-later",
+        "requested_url": later.url,
+        "canonical_url": later.url,
+        "story_id": later.story_id,
+        "first_observed_at": start,
+        "fetched_at": start,
+        "fetched_at_is_inferred": False,
+        "title": later.title,
+        "authors": [],
+        "article_text": "Text.",
+        "content_sha256": "hash-later",
+        "html_sha256": "html-later",
+        "http_status": 200,
+        "fetch_ok": True,
+    }
+    signal = {
+        "content_sha256": "hash-later",
+        "model": "deepseek-flash",
+        "prompt_version": "test-v1",
+        "topic": "politics",
+        "themes": ["housing"],
+        "summary": "Summary.",
+        "named_entities": [],
+        "event_label": "Housing",
+        "event_type": "policy_change",
+        "story_form": "update",
+        "generated_at": start,
+        "deepseek_response_id": "response-later",
+        "prompt_tokens": 1,
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 1,
+        "completion_tokens": 1,
+        "request_cost_usd": 0.0,
+        "batch_size": 1,
+    }
+
+    build_marts(
+        observations_table(rows),
+        tmp_path,
+        articles=pa.Table.from_pylist([article], schema=ARTICLE_SCHEMA),
+        signals=pa.Table.from_pylist([signal], schema=SIGNAL_SCHEMA),
+    )
+    payload = json.loads((tmp_path / "promotion-attention.json").read_text())
+
+    assert payload["singleSurfaceCaptures"] == 1
+    assert payload["unsettledStories"] == 1
+    assert payload["totals"] == {
+        "stories": 5,
+        "promotedOnly": 1,
+        "readOnly": 1,
+        "both": 3,
+        "reachRate": 75.0,
+        "unpromotedShare": 25.0,
+    }
+    lag = {row["bucket"]: row["count"] for row in payload["lag"]}
+    assert lag == {
+        "read_first": 1,
+        "same_capture": 1,
+        "within_3_hours": 1,
+        "within_12_hours": 0,
+        "later": 0,
+    }
+    assert payload["themes"] == [
+        {
+            "theme": "housing",
+            "stories": 1,
+            "promotedOnly": 0,
+            "readOnly": 0,
+            "both": 1,
+            "reachRate": 100.0,
+            "unpromotedShare": 0.0,
+            "promotedFirst": 1,
+            "medianLagMinutes": 120,
+        }
+    ]
+    assert payload["months"][0]["month"] == "2026-07"
+    assert payload["months"][0]["captures"] == 4
+    promoted = payload["examples"]["promotedOnly"]
+    assert [row["title"] for row in promoted] == ["Story promoted"]
+    assert promoted[0]["captures"] == 2
+    assert promoted[0]["bestPosition"] == 2
+    assert [row["title"] for row in payload["examples"]["readOnly"]] == ["Story unpromoted"]

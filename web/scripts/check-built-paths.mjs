@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const base = "/bbc_news_logger/";
-const pages = ["index.html", "explore/index.html", "signals/index.html", "trends/index.html", "methodology/index.html"];
+const pages = ["index.html", "explore/index.html", "signals/index.html", "trends/index.html", "promotion/index.html", "methodology/index.html"];
 const output = await Promise.all(
   pages.map(async (page) => [page, await readFile(new URL(`../dist/${page}`, import.meta.url), "utf8")]),
 );
@@ -11,6 +11,7 @@ for (const [page, html] of output) {
     "/bbc_news_loggerexplore",
     "/bbc_news_loggersignals",
     "/bbc_news_loggertrends",
+    "/bbc_news_loggerpromotion",
     "/bbc_news_loggermethodology",
     "/bbc_news_loggerdata",
   ]) {
@@ -19,7 +20,7 @@ for (const [page, html] of output) {
     }
   }
 
-  for (const route of [base, `${base}explore/`, `${base}signals/`, `${base}trends/`, `${base}methodology/`]) {
+  for (const route of [base, `${base}explore/`, `${base}signals/`, `${base}trends/`, `${base}promotion/`, `${base}methodology/`]) {
     if (!html.includes(`href="${route}"`)) {
       throw new Error(`${page} is missing route link: ${route}`);
     }
@@ -30,6 +31,7 @@ const index = output.find(([page]) => page === "index.html")?.[1] ?? "";
 const explore = output.find(([page]) => page === "explore/index.html")?.[1] ?? "";
 const signals = output.find(([page]) => page === "signals/index.html")?.[1] ?? "";
 const trends = output.find(([page]) => page === "trends/index.html")?.[1] ?? "";
+const promotion = output.find(([page]) => page === "promotion/index.html")?.[1] ?? "";
 async function routeScripts(html) {
   return Promise.all(
     [...html.matchAll(/src="(\/bbc_news_logger\/[^\"]+\.js)"/g)].map((match) =>
@@ -45,6 +47,8 @@ const signalOutput = `${signals}\n${signalScripts.join("\n")}`;
 const trendScripts = await routeScripts(trends);
 const trendOutput = `${trends}\n${trendScripts.join("\n")}`;
 const indexOutput = `${index}\n${indexScripts.join("\n")}`;
+const promotionScripts = await routeScripts(promotion);
+const promotionOutput = `${promotion}\n${promotionScripts.join("\n")}`;
 
 for (const mart of ["data/manifest.json", "data/daily.json", "data/rank-series.json", "data/semantic-findings.json"]) {
   if (!indexOutput.includes(mart)) throw new Error(`index route is missing mart request: ${mart}`);
@@ -62,4 +66,8 @@ for (const mart of ["data/semantic-trends.json", "data/recurring-events.json", "
   if (!trendOutput.includes(mart)) throw new Error(`trends route is missing mart request: ${mart}`);
 }
 
-console.log(`Verified ${pages.length} GitHub Pages routes and twelve data-mart requests.`);
+if (!promotionOutput.includes("data/promotion-attention.json")) {
+  throw new Error("promotion route is missing mart request: data/promotion-attention.json");
+}
+
+console.log(`Verified ${pages.length} GitHub Pages routes and thirteen data-mart requests.`);

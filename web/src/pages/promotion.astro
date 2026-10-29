@@ -1,0 +1,271 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Promotion vs attention | BBC News Analyser"
+  description="How BBC News front-page promotion lines up with the Most Read list, story by story, by theme, and over time."
+  current="promotion"
+>
+  <div class="page">
+    <div class="page-head">
+      <h1>Promotion vs attention</h1>
+      <p>Which promoted stories reach Most Read, which stories readers find without front-page promotion, and how long the gap is. Every story is compared across captures that recorded both lists.</p>
+    </div>
+
+    <section class="status-bar" aria-label="Comparison coverage">
+      <dl>
+        <div><dt>Stories compared</dt><dd id="story-count">—</dd></div>
+        <div><dt>Period</dt><dd id="period">—</dd></div>
+        <div><dt>Excluded captures</dt><dd id="excluded">—</dd></div>
+      </dl>
+    </section>
+
+    <p class="loader" id="promotion-loader" role="status">Loading the comparison…</p>
+
+    <div id="promotion-view" hidden>
+      <section class="trend-block" aria-labelledby="outcomes-heading">
+        <div class="section-intro">
+          <h2 id="outcomes-heading" class="rule-heading">Three outcomes</h2>
+          <p>Every compared story was on the front page, in Most Read, or both. The front page here means the ten promoted slots the collector records.</p>
+        </div>
+        <div class="outcome-bar" id="outcome-bar" aria-hidden="true"></div>
+        <div class="changing-columns outcome-columns">
+          <section aria-labelledby="promoted-only-heading">
+            <h3 id="promoted-only-heading">Promoted, never in Most Read</h3>
+            <p class="outcome-figure" id="promoted-only">—</p>
+            <p class="column-note" id="reach-note">—</p>
+          </section>
+          <section aria-labelledby="both-heading">
+            <h3 id="both-heading">Promoted and in Most Read</h3>
+            <p class="outcome-figure" id="both">—</p>
+            <p class="column-note">Both lists at some point in the story’s life.</p>
+          </section>
+          <section aria-labelledby="read-only-heading">
+            <h3 id="read-only-heading">In Most Read, never promoted</h3>
+            <p class="outcome-figure outcome-read" id="read-only">—</p>
+            <p class="column-note" id="unpromoted-note">—</p>
+          </section>
+        </div>
+      </section>
+
+      <section class="trend-block" aria-labelledby="lag-heading">
+        <div class="section-intro">
+          <h2 id="lag-heading" class="rule-heading">Time to Most Read</h2>
+          <p>For stories on both lists, the time from first front-page capture to first Most Read capture. Captures are about an hour apart at best, so “same capture” means within roughly an hour.</p>
+        </div>
+        <ul class="change-list lag-list" id="lag-list"></ul>
+      </section>
+
+      <section class="trend-block" aria-labelledby="theme-heading">
+        <div class="section-intro">
+          <h2 id="theme-heading" class="rule-heading">By theme</h2>
+          <p id="theme-intro">Themes come from each story’s latest label. Only themes with at least 30 compared stories are shown.</p>
+        </div>
+        <form class="trend-controls" id="theme-controls">
+          <div class="filter-field">
+            <label for="theme-sort">Sort by</label>
+            <select id="theme-sort">
+              <option value="stories">Most stories</option>
+              <option value="reach">Lowest reach</option>
+              <option value="unpromoted">Most read without promotion</option>
+              <option value="lag">Longest delay</option>
+            </select>
+          </div>
+          <div class="filter-field">
+            <label for="theme-filter">Filter themes</label>
+            <span class="input-icon">
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25" /><path d="m10.25 10.25 3.25 3.25" /></svg>
+              <input id="theme-filter" type="search" placeholder="Theme" autocomplete="off" />
+            </span>
+          </div>
+          <p class="filter-count" id="theme-count" aria-live="polite">—</p>
+        </form>
+        <div class="table-scroll data-scroll">
+          <table class="data-table">
+            <caption class="sr-only">Promotion and Most Read outcomes by theme</caption>
+            <thead>
+              <tr>
+                <th scope="col">Theme</th>
+                <th scope="col" class="numeric">Stories</th>
+                <th scope="col">Promoted that reached Most Read</th>
+                <th scope="col">Most Read never promoted</th>
+                <th scope="col" class="numeric">Median delay <span class="table-note">promoted first</span></th>
+              </tr>
+            </thead>
+            <tbody id="theme-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="trend-block" aria-labelledby="month-heading">
+        <div class="section-intro">
+          <h2 id="month-heading" class="rule-heading">By month</h2>
+          <p>Stories grouped by the month they were first captured. Fewer captures means coarser timing and more missed appearances, so compare months with similar capture counts.</p>
+        </div>
+        <div class="table-scroll data-scroll">
+          <table class="data-table">
+            <caption class="sr-only">Promotion and Most Read outcomes by month</caption>
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col" class="numeric">Captures</th>
+                <th scope="col" class="numeric">Stories</th>
+                <th scope="col" class="numeric">Promoted that reached Most Read</th>
+                <th scope="col" class="numeric">Most Read never promoted</th>
+              </tr>
+            </thead>
+            <tbody id="month-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="trend-block" aria-labelledby="examples-heading">
+        <div class="section-intro">
+          <h2 id="examples-heading" class="rule-heading">Clearest cases</h2>
+          <p>The stories that stayed on one list for the most captures without ever appearing on the other.</p>
+        </div>
+        <div class="changing-columns example-columns">
+          <section aria-labelledby="read-examples-heading">
+            <h3 id="read-examples-heading">Read without promotion</h3>
+            <p class="column-note">Most Read captures, never on the front page.</p>
+            <ol class="return-list" id="read-examples"></ol>
+          </section>
+          <section aria-labelledby="promoted-examples-heading">
+            <h3 id="promoted-examples-heading">Promoted, never read</h3>
+            <p class="column-note">Front-page captures, never in Most Read.</p>
+            <ol class="return-list" id="promoted-examples"></ol>
+          </section>
+        </div>
+      </section>
+
+      <p class="caveat" id="promotion-caveat">The collector records the ten front-page promotion slots and the ten Most Read places on one BBC News web page. Promotion in apps, regional pages, newsletters, or social media is not captured, and a Most Read rank is not an audience count. Stories first seen in the last 24 hours are left out until they have had time to reach the other list.</p>
+    </div>
+  </div>
+
+  <script>
+    import { titleParts } from "../lib/titles";
+
+    interface Outcomes { stories: number; promotedOnly: number; readOnly: number; both: number; reachRate: number | null; unpromotedShare: number | null }
+    interface ThemeRow extends Outcomes { theme: string; promotedFirst: number; medianLagMinutes: number | null }
+    interface MonthRow extends Outcomes { month: string; captures: number }
+    interface LagBucket { bucket: string; label: string; count: number; share: number | null }
+    interface Example { storyId: string; title: string; url: string; firstSeen: string; captures: number; bestPosition: number }
+    interface Promotion {
+      settleHours: number; firstSeen: string | null; lastSeen: string | null; unsettledStories: number; singleSurfaceCaptures: number;
+      totals: Outcomes; labelledStories: number; lag: LagBucket[]; themes: ThemeRow[]; months: MonthRow[];
+      examples: { readOnly: Example[]; promotedOnly: Example[] };
+    }
+
+    // Months with fewer captures than this were not collected hourly.
+    const PARTIAL_MONTH = 500;
+    const base = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/`;
+    const number = new Intl.NumberFormat("en-GB");
+    const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+    const monthName = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+    let themes: ThemeRow[] = [];
+
+    const escape = (value: unknown): string => {
+      const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
+      return String(value).replace(/[&<>'"]/g, (character) => entities[character] ?? character);
+    };
+    const element = (selector: string): HTMLElement => { const result = document.querySelector<HTMLElement>(selector); if (!result) throw new Error(`Missing element: ${selector}`); return result; };
+    const control = (selector: string): HTMLInputElement | HTMLSelectElement => { const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector); if (!result) throw new Error(`Missing control: ${selector}`); return result; };
+    const label = (value: string) => value.replaceAll("_", " ");
+    const percent = (value: number | null) => value === null ? "—" : `${value.toFixed(1)}%`;
+    const share = (part: number, whole: number) => whole ? part / whole * 100 : 0;
+    const delay = (minutes: number | null) => minutes === null ? "—" : minutes < 90 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
+    const askLink = (theme: string) => `${base}signals/?q=${encodeURIComponent(`How was ${label(theme)} covered on the front page and in Most Read?`)}`;
+    const shareCell = (value: number | null, tone: "front" | "read") =>
+      `<td class="share-cell"><span class="share-bar share-${tone}" aria-hidden="true"><i style="width:${Math.min(value ?? 0, 100)}%"></i></span><span class="figure">${percent(value)}</span></td>`;
+
+    function renderOutcomes(data: Promotion) {
+      const { totals } = data;
+      element("#story-count").textContent = number.format(totals.stories);
+      element("#period").textContent = data.firstSeen && data.lastSeen ? `${date.format(new Date(data.firstSeen))} to ${date.format(new Date(data.lastSeen))}` : "—";
+      element("#excluded").textContent = `${number.format(data.singleSurfaceCaptures)} with one list`;
+      const parts = [
+        { key: "front", value: totals.promotedOnly, name: "Promoted only" },
+        { key: "both", value: totals.both, name: "Both lists" },
+        { key: "read", value: totals.readOnly, name: "Most Read only" },
+      ];
+      element("#outcome-bar").innerHTML = parts.map((part) => `<span class="outcome-${part.key}" style="flex-grow:${part.value}"></span>`).join("");
+      element("#promoted-only").textContent = number.format(totals.promotedOnly);
+      element("#both").textContent = number.format(totals.both);
+      element("#read-only").textContent = number.format(totals.readOnly);
+      element("#reach-note").textContent = `${percent(totals.reachRate)} of promoted stories did reach Most Read.`;
+      element("#unpromoted-note").textContent = `${percent(totals.unpromotedShare)} of Most Read stories were never promoted.`;
+    }
+
+    function renderLag(lag: LagBucket[]) {
+      element("#lag-list").innerHTML = lag.map((row) =>
+        `<li class="share-row"><span>${escape(row.label)}</span><span class="share-bar ${row.bucket === "read_first" ? "share-read" : "share-front"}" aria-hidden="true"><i style="width:${Math.min(row.share ?? 0, 100)}%"></i></span><span class="figure">${percent(row.share)}</span><span class="figure">${number.format(row.count)}</span></li>`).join("");
+    }
+
+    function renderThemes() {
+      const query = control("#theme-filter").value.trim().toLowerCase();
+      const sort = control("#theme-sort").value;
+      const rows = themes.filter((row) => label(row.theme).toLowerCase().includes(query));
+      const sorters: Record<string, (left: ThemeRow, right: ThemeRow) => number> = {
+        stories: (left, right) => right.stories - left.stories,
+        reach: (left, right) => (left.reachRate ?? 101) - (right.reachRate ?? 101),
+        unpromoted: (left, right) => (right.unpromotedShare ?? -1) - (left.unpromotedShare ?? -1),
+        lag: (left, right) => (right.medianLagMinutes ?? -1) - (left.medianLagMinutes ?? -1),
+      };
+      rows.sort((left, right) => sorters[sort]!(left, right) || right.stories - left.stories);
+      element("#theme-count").textContent = query ? `${number.format(rows.length)} of ${number.format(themes.length)} themes` : `${number.format(themes.length)} themes`;
+      element("#theme-table").innerHTML = rows.map((row) => `<tr>
+        <th scope="row"><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a></th>
+        <td class="numeric">${number.format(row.stories)}</td>
+        ${shareCell(row.reachRate, "front")}
+        ${shareCell(row.unpromotedShare, "read")}
+        <td class="numeric">${delay(row.medianLagMinutes)}${row.promotedFirst && row.promotedFirst < 10 ? ` <span class="table-note">(${row.promotedFirst})</span>` : ""}</td>
+      </tr>`).join("") || `<tr><td colspan="5" class="empty">No theme matches “${escape(query)}”.</td></tr>`;
+    }
+
+    function renderMonths(months: MonthRow[]) {
+      element("#month-table").innerHTML = [...months].reverse().map((row) => `<tr>
+        <th scope="row">${monthName.format(new Date(`${row.month}-01T00:00:00Z`))}${row.captures < PARTIAL_MONTH ? ` <span class="table-note">partial collection</span>` : ""}</th>
+        <td class="numeric">${number.format(row.captures)}</td>
+        <td class="numeric">${number.format(row.stories)}</td>
+        <td class="numeric">${percent(row.reachRate)}</td>
+        <td class="numeric">${percent(row.unpromotedShare)}</td>
+      </tr>`).join("");
+    }
+
+    function renderExamples(selector: string, rows: Example[], surface: string) {
+      element(selector).innerHTML = rows.map((row, index) => {
+        const { live, text } = titleParts(row.title, row.url);
+        return `<li><span class="return-index" aria-hidden="true">${index + 1}</span><div>
+          <a href="${base}explore/?story=${encodeURIComponent(row.storyId)}">${live ? `<span class="live-label">Live</span> ` : ""}${escape(text)}</a>
+          <p>${number.format(row.captures)} ${surface} captures · best #${row.bestPosition} · first seen ${date.format(new Date(row.firstSeen))}</p></div></li>`;
+      }).join("") || `<li class="empty">No stories yet.</li>`;
+    }
+
+    fetch(`${base}data/promotion-attention.json`).then((response) => {
+      if (!response.ok) throw new Error(String(response.status));
+      return response.json() as Promise<Promotion>;
+    }).then((data) => {
+      if (!data.totals.stories) {
+        element("#promotion-loader").textContent = "Not enough captures recorded both lists to make a comparison yet.";
+        return;
+      }
+      renderOutcomes(data);
+      renderLag(data.lag);
+      themes = data.themes;
+      element("#theme-intro").textContent = `Themes come from each story’s latest label (${number.format(data.labelledStories)} of ${number.format(data.totals.stories)} stories are labelled). Only themes with at least 30 compared stories are shown; a delay counted from fewer than ten stories shows that count in brackets.`;
+      renderThemes();
+      renderMonths(data.months);
+      renderExamples("#read-examples", data.examples.readOnly, "Most Read");
+      renderExamples("#promoted-examples", data.examples.promotedOnly, "front-page");
+      element("#promotion-loader").hidden = true;
+      element("#promotion-view").hidden = false;
+    }).catch(() => {
+      element("#promotion-loader").textContent = "The comparison could not be loaded. Refresh the page to try again.";
+    });
+
+    element("#theme-controls").addEventListener("submit", (event) => event.preventDefault());
+    control("#theme-sort").addEventListener("change", renderThemes);
+    control("#theme-filter").addEventListener("input", renderThemes);
+  </script>
+</Layout>
