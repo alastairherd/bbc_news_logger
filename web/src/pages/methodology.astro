@@ -11,7 +11,7 @@ import Layout from "../layouts/Layout.astro";
     <header class="article-head">
       <h1>Methodology</h1>
       <p class="standfirst">How the archive is collected, stored and analysed, and where its limits are.</p>
-      <p class="article-meta">Dataset schema version 1 <span aria-hidden="true">·</span> Selector version 2026-07 <span aria-hidden="true">·</span> All times UTC <span aria-hidden="true">·</span> Updated 28 October 2026</p>
+      <p class="article-meta">Dataset schema version 1 <span aria-hidden="true">·</span> Selector version 2026-07 <span aria-hidden="true">·</span> All times UTC <span aria-hidden="true">·</span> Updated 30 October 2026</p>
     </header>
 
     <div class="article-grid">
@@ -38,7 +38,7 @@ import Layout from "../layouts/Layout.astro";
           <p>Read these before comparing periods. Each affects counts or text in the archive.</p>
           <div class="callout">
             <p class="callout-date"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>17 September to 27 October 2026</p>
-            <p><strong>Collection outage.</strong> Scheduled collection was switched off after the capture at 11:33 UTC on 17 September and resumed at 20:02 UTC on 27 October. That period has no observations, article snapshots, or semantic labels and cannot be backfilled, so trends spanning it should not be read as a change in BBC coverage.</p>
+            <p><strong>Collection outage.</strong> GitHub disabled the repository’s scheduled workflows, which happens to public repositories after 60 days without activity, so collection stopped after the capture at 11:33 UTC on 17 September and resumed at 20:02 UTC on 27 October. That period has no observations, article snapshots, or semantic labels and cannot be backfilled, so trends spanning it should not be read as a change in BBC coverage.</p>
           </div>
           <div class="callout">
             <p class="callout-date"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5 14.5 13.5h-13z"/><path d="M8 6.5v3.25M8 11.75V12"/></svg>27 August to 28 October 2026</p>
@@ -103,7 +103,7 @@ import Layout from "../layouts/Layout.astro";
           <h2 id="validation-heading">Validation and operations</h2>
           <p>Parser fixtures cover both page regions, tests assert typed Arrow schemas, publication keys are idempotent, and dashboard marts are rebuilt from the public dataset rather than from generated files committed to Git.</p>
           <p>New collection runs include HTTP status, selector version, per-surface counts, workflow URL, timestamps, and explicit success state. Locked dependencies, workflow timeouts, concurrency controls, and least-privilege permissions make scheduled behavior inspectable.</p>
-          <p>Collection runs hourly, article snapshots run daily, semantic analysis runs daily at 12:23 UTC to stay inside DeepSeek's off-peak pricing, compaction runs weekly, and Pages rebuilds every three hours and after relevant changes. The semantic job processes only missing content hashes, while compaction retries if another publication changes the dataset revision.</p>
+          <p>Collection runs hourly, article snapshots run daily, semantic analysis runs daily at 12:23 UTC to stay inside DeepSeek's off-peak pricing, compaction runs weekly, and Pages rebuilds every three hours and after relevant changes. The semantic job processes only missing content hashes, while compaction retries if another publication changes the dataset revision. A monthly workflow commits a timestamp to the repository so that GitHub does not disable the schedules again.</p>
           <p>Each hour the Cloudflare Worker that starts collection also checks when the last capture reached Hugging Face. If none has arrived for three hours, it starts a workflow that opens a <code>collection-alert</code> issue in the repository; the next successful capture closes it. A GitHub schedule repeats the check every four hours in case the Worker itself stops.</p>
         </section>
 
@@ -128,10 +128,10 @@ import Layout from "../layouts/Layout.astro";
 
         <section id="process" aria-labelledby="process-heading">
           <h2 id="process-heading">How it was made</h2>
-          <p>This is a solo development project. I set the research questions, interpretive limits, and cost boundaries, and used an AI coding agent to inspect the code and live data, implement scoped changes, run tests and workflows, and measure the deployed result. I reviewed each iteration against the archive and real browser behaviour before moving to the next one.</p>
-          <p>The system was built in layers: stabilise fail-closed collection, migrate history with an audit trail, make expensive work incremental and checkpointed, place each job on the smallest suitable compute, then add retrieval-grounded synthesis without making the archive depend on it.</p>
-          <p>Measurements shaped the architecture. A frozen trends view, for example, was traced to 26,521 theme options and repeated scans of 70,685 rows on the browser thread. Moving the mart into a Web Worker, ranking only active signals, and staging its load fixed the interaction without adding a server.</p>
-          <p>The low-cost data-app design was informed by <a href="https://spicydata.ai/blog/zero-dollar-data-app/">Spicy Data’s DuckDB and Astro architecture</a>. The retrieval and synthesis approach also draws on the <a href="https://github.com/typedef-ai/fenic-examples/tree/main/hn_agent">Fenic Hacker News agent example</a>.</p>
+          <p>I chose the research questions and set the limits on cost and on what the site claims. All of the code was written with Codex and Claude Code, and I checked each change against the archive and the live site before moving on. The <a href="https://github.com/alastairherd/bbc_news_logger#how-it-was-built">README</a> describes the main decisions.</p>
+          <p>Fixes were driven by measurement. The frozen Trends view, for example, was traced to 26,521 theme options and repeated scans of 70,685 rows on the browser thread. Moving that work into a Web Worker and listing only the most active themes fixed it.</p>
+          <p>Groups of GPT-6.1 Sol agents, run through Codex, reviewed the live site as different kinds of visitor, including one using a simulated screen reader, and checked cited answers against their sources. Their findings led to the rule that an article's fetch date is not the date of the event it reports, a fix that stops an answer attaching to the wrong search, and several accessibility fixes.</p>
+          <p>The low-cost design follows <a href="https://spicydata.ai/blog/zero-dollar-data-app/">Spicy Data’s DuckDB and Astro architecture</a>, and Ask the archive is modelled on the <a href="https://github.com/typedef-ai/fenic-examples/tree/main/hn_agent">Fenic Hacker News agent example</a>. The visual design was developed with Impeccable.</p>
         </section>
 
         <section id="limitations" aria-labelledby="limitations-heading">

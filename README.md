@@ -1,302 +1,210 @@
 # BBC News Analyser
 
-An independent, continuously updated archive for exploring how stories move across the BBC News
-front page and Most Read list.
+An independent archive of the BBC News front page and Most Read list, captured hourly since April
+2025, with a research site for exploring it.
 
 [Open the analyser](https://alastairherd.github.io/bbc_news_logger/) ·
 [Browse the dataset](https://huggingface.co/datasets/AlastairH/bbc-news-logger) ·
 [Read the methodology](https://alastairherd.github.io/bbc_news_logger/methodology/)
 
-The project records selected BBC News homepage positions every hour, fetches article snapshots,
-and adds semantic labels and embeddings. The public interface turns that history into explorable
-trends, recurring-story timelines, related coverage, and evidence-linked answers.
+Not affiliated with or endorsed by the BBC. BBC content remains subject to the BBC's terms and
+copyright.
 
-This project is not affiliated with or endorsed by the BBC. BBC content remains subject to the
-BBC's terms and copyright.
+## What it does
 
-## What you can explore
+Each hour a collector records the ten promoted front-page slots and the ten Most Read places. A
+daily job fetches every new article, DeepSeek V4.1 Flash labels it with themes and a short
+summary, and BGE Small embeddings connect related coverage across months.
 
-| View | What it shows |
-| --- | --- |
-| **Overview** | Recent theme momentum, differences between the front page and Most Read, story-form mix, collection health, and returning stories |
-| **Explore** | A filterable, paginated story archive with article links and semantically related coverage |
-| **Ask the archive** | Local semantic search and optional cited synthesis |
-| **Trends** | Weekly theme summaries, theme momentum, 120-day signal trends, and recurring-story timelines |
-| **Promotion vs attention** | Which promoted stories reach Most Read, which are read without promotion, the delay between the two, by theme and by month |
-| **Methodology** | Collection rules, schemas, validation, semantic methods, known gaps, and interpretive limits |
+The site is static. Overview compares the latest capture with the one before it. Explore is the
+full story archive. Trends follows themes and recurring stories over time, with a weekly summary
+of the most-covered themes. Promotion vs attention compares the two lists story by story: which
+front-page stories reach Most Read, which reach it without front-page promotion, and how long it
+takes. Ask the archive searches by meaning in the browser and can request a short answer that cites
+the articles it found.
 
-### Ask the archive
+Labels, clusters and answers come from models and can be wrong.
 
-“Ask the archive” retrieves up to twenty relevant articles with BGE Small and can ask DeepSeek V4.1
-Flash to produce a cited synthesis. Every generated finding links back to numbered BBC evidence so
-the source material remains inspectable.
+## What it shows so far
 
-- Search queries and embedding comparisons run locally in the browser.
-- The embedding model and index load only after a semantic search begins.
-- The shared synthesis path sends the question and bounded evidence rows to a rate-limited
-  Cloudflare Worker; it does not send the full archive. The Worker enforces a shared daily
-  spending cap (`DAILY_BUDGET_USD`, $0.50 per UTC day by default) by reserving each request's
-  worst-case cost in a Durable Object before calling DeepSeek and settling the billed cost after.
-- Fast and Reasoned modes control the bounded DeepSeek thinking allowance.
-- Source search, trends, and recurring-story exploration remain available if synthesis is offline.
+I started this to see whether front-page promotion drives what ends up in Most Read, and which kinds
+of story make one list but not the other. Across 18,545 stories captured between April 2025 and
+October 2026:
 
-Generated labels, clusters, and answers are discovery aids. They can be incomplete or wrong and
-should not be treated as verified claims about the BBC or the events being reported.
+- 72% of stories promoted on the front page also reached Most Read. Nearly two thirds of those
+  appeared on both lists in the same hourly capture, and only 3% took more than three hours.
+- 30% of stories in Most Read were never captured on the front page.
+- About one in five promoted football and World Cup stories reached Most Read, and Premier League
+  stories almost never did.
+- UK politics was the reverse. Most of the UK politics stories in Most Read never appeared on the
+  front page.
+- “DIY store closes as travellers move on to car park” spent 35 hourly captures in Most Read without
+  being promoted, and “How coffee chains like Costa lost the matcha generation” reached number one
+  the same way. “Murder investigation after man's death” sat on the front page for 97 captures and
+  never entered Most Read.
+
+These are list appearances, not audience figures, and “the front page” means the ten promoted
+slots the collector records. The
+[Promotion page](https://alastairherd.github.io/bbc_news_logger/promotion/) has the full breakdown
+by theme and month.
 
 ## How it works
 
 ```text
-BBC News homepage
-        │ hourly collection and validation
-        ▼
-GitHub Actions ───────────────► Hugging Face Parquet datasets
-        │                                      │
-        │ DuckDB marts                         ├──► Astro research interface
-        │                                      │
-        ├── article snapshots                  ├──► BGE embeddings
-        ├── semantic enrichment                └──► labels and story clusters
-        │
-        └── cited synthesis request ──────────────► Cloudflare Worker → DeepSeek
+BBC News homepage ──► GitHub Actions ──► Hugging Face (Parquet)
+                                                │
+                              DuckDB at build time
+                                                ▼
+                                  Static Astro site on GitHub Pages
+                                                │
+                     Ask the archive ──► Cloudflare Worker ──► DeepSeek
 ```
 
-The repository contains application code, schemas, tests, and interface assets. Generated data is
-published to Hugging Face rather than committed to Git:
+Scheduled GitHub Actions jobs collect, fetch and label the stories, then publish Parquet files to
+Hugging Face. Each Pages build reads those tables with DuckDB and writes small JSON files that the
+site loads directly; search runs in a browser worker against a quantised vector index. A Cloudflare
+Worker handles the two things that need a server: starting the hourly collection, because GitHub's
+scheduler dropped too many runs, and making the capped DeepSeek call behind Ask the archive.
 
-- [Curated dataset](https://huggingface.co/datasets/AlastairH/bbc-news-logger): observations,
-  parsed article snapshots, run metadata, embeddings, labels, and clusters.
-- [Raw HTML companion](https://huggingface.co/datasets/AlastairH/bbc-news-logger-raw): source HTML
-  kept separately so ordinary analysis does not download the largest field.
+## How it was built
 
-Append-only Parquet shards make routine updates small. A weekly compare-and-swap compaction folds
-older shards into compressed base files without racing new collection writes. Dashboard and job
-readers see the base and incremental layers as the same logical tables.
+The project started as a scraper writing CSV files into this repository. Before adding anything
+else I made the data reliable. The collector now fails instead of publishing a partial capture,
+each story has a stable ID based on its canonical URL, and the old CSV, ZIP and Parquet files were
+migrated with hashes and row counts that can be checked.
 
-## How it was made
+As the archive grew I moved the data from GitHub to Hugging Face, which is designed for versioned
+datasets and lets people query the tables directly. I hadn't realised that GitHub disables
+scheduled workflows in a public repository after 60 days without activity, and the hourly data
+commits had been that activity. Once they stopped, GitHub switched the schedules off and collection
+stopped for six weeks in autumn 2026. A monthly keepalive commit now prevents that.
 
-BBC News Analyser was built as a sequence of small, auditable systems rather than as one large
-application. Each new capability had to preserve the data already collected and remain cheap to
-run unattended.
+The architecture follows Spicy Data's
+[“A live data app for $0”](https://spicydata.ai/blog/zero-dollar-data-app/), which argues for
+precomputing with DuckDB and serving a static Astro site instead of running a BI tool. I wanted
+something that could run unattended for close to nothing, so it suited me. Ask the archive is
+modelled on the
+[Fenic Hacker News agent example](https://github.com/typedef-ai/fenic-examples/tree/main/hn_agent):
+search finds the articles first, and the model can only answer from those numbered sources and must
+cite them.
 
-1. **Stabilise collection first.** The collector was made fail-closed, with canonical story IDs,
-   typed records, selector versions, and explicit run metadata. A broken page selector creates a
-   visible failed run instead of silently publishing an empty or partial dataset.
-2. **Treat history as a migration.** Legacy CSV, ZIP, and Parquet files were converted through a
-   reproducible migration with source and destination hashes, row counts, and documented repairs.
-   The original files remained untouched, making the new dataset auditable rather than merely
-   tidier.
-3. **Make expensive work incremental.** Article fetches, embeddings, and labels are keyed by stable
-   URLs or content hashes. Paid model responses are checkpointed before the next request, and
-   immutable output shards are published in bounded batches. A failed or timed-out run resumes from
-   completed work instead of paying for it again.
-4. **Put each job on the smallest suitable compute.** GitHub Actions handles scheduled Python and
-   model work, Hugging Face stores the versioned Parquet data, DuckDB builds browser-ready marts,
-   GitHub Pages serves the static product, and Cloudflare performs the short optional synthesis
-   request. Trend parsing and semantic comparisons run in browser workers so the interface remains
-   responsive without a permanent application server.
-5. **Ground the generative layer in evidence.** Retrieval happens before synthesis. DeepSeek sees a
-   bounded set of numbered articles, returns structured output, and must cite those sources. The
-   interface keeps retrieval results visible so a generated answer can always be checked against
-   the archive.
+I chose DeepSeek V4 Flash for labelling because it was far cheaper than comparable models for the
+quality, and moved to V4.1 Flash when it replaced V4. Models have kept improving since then, and
+newer options such as Haiku 5.5 or Luna 6 might now suit the job, but I have not tried them
+because a fair comparison means paying to relabel a large part of the archive.
 
-The development process followed the same evidence-first pattern. I set the research goals,
-interpretive limits, and cost boundaries, then used an AI coding agent to inspect the repository
-and live outputs, implement scoped changes, run tests and workflows, and measure the deployed
-result. I reviewed each iteration against real data and real browser behaviour before starting the
-next one.
+I put a hard ceiling on every paid path, mainly to protect my bank balance: labelling stops at $1 a
+month, weekly summaries at $0.25 a month and public answers at $0.50 a day. Scheduled model work
+runs in DeepSeek's cheaper off-peak window.
 
-That measurement loop mattered. For example, profiling a frozen trends interface showed that it
-was creating 26,521 theme options and repeatedly scanning 70,685 rows on the browser thread. The
-fix was not more infrastructure: the mart was indexed in a Web Worker, the interface was limited to
-the most active signals, and interactions were measured again on the deployed site. This cycle of
-observe → constrain → implement → verify is the process behind the project as much as any single
-technology in the architecture.
+So that a crash never means paying twice for the same work, each labelling response is saved to a
+local checkpoint before the next request goes out, and the saved results are pushed to the dataset
+in batches. If a run dies halfway, the next one carries on from what has already been paid for.
+Articles that failed are only retried when I ask.
+
+I worked out the visual design with Impeccable, a design plugin for coding agents. I wanted the
+site to look like BBC News, red included, while making it clear that it is not a BBC product.
+
+All of the code was written with Codex and Claude Code. I decided what to build and how far the
+site's claims could go, and checked each result against the real data before moving on. A few
+examples:
+
+- The Trends page froze the browser. Profiling showed it was building 26,521 theme options and
+  rescanning 70,685 rows on the main thread. Moving the indexing into a Web Worker and listing only
+  the most active themes fixed it.
+- Nothing on the site showed the six-week outage, or that GitHub had been running the hourly job
+  only every few hours. A Cloudflare cron now starts collection, and a GitHub issue is opened if no
+  capture lands for three hours.
+- I added Fenic after reading about it, to run an MCP research service and the weekly theme
+  summaries. It didn't suit this project. The service was never hosted, and at most eight summaries a
+  week didn't justify the dependency, so I removed it. The summaries now use the same DeepSeek client as
+  the labelling.
+- To get outside feedback, I had Codex send groups of GPT-6.1 Sol agents through the live site,
+  each acting as a different visitor: a researcher, a journalist on deadline, a newcomer, a phone
+  user and a keyboard user. A second round asked real questions and checked each cited answer
+  against its source. They found answers that treated the date an article was fetched as the date
+  of the event, and a race condition that could attach an answer to the wrong query's sources. Both
+  are fixed, along with most of their usability notes.
+
+## Reading the data
+
+- A Most Read rank is not an audience count, and a front-page slot is not a measure of editorial
+  importance. Collection covers one BBC News web page, not apps or regional editions.
+- 6–21 May 2025: Most Read was not captured. Promotion vs attention leaves these captures out.
+- 27 August – 28 October 2026: GitHub ran collection every three to six hours instead of hourly.
+  Compare counts from this period per capture, not per day.
+- 17 September – 27 October 2026: no collection, because GitHub had disabled the schedules. This
+  period cannot be backfilled.
+- Captures before 28 October 2026 stored some headlines with broken characters (“Â£” for “£”). The
+  site repairs them on display; the dataset has not yet been repaired.
+
+The [methodology](https://alastairherd.github.io/bbc_news_logger/methodology/) has the full data
+contract, migration repairs and clustering rules.
 
 ## Dataset
 
-The main public dataset exposes six configurations:
-
-| Configuration | Grain |
+| Configuration | One row per |
 | --- | --- |
-| `observations` | One row for each captured story position in each successful scrape |
-| `article_snapshots` | Parsed metadata and text for each daily article URL set |
-| `scrape_runs` | Validation and operational metadata for each collection attempt |
-| `story_signals` | Versioned DeepSeek labels and summaries for each analysed content hash |
-| `article_embeddings` | Normalized 384-dimensional BGE Small vectors for semantic retrieval |
-| `recurring_events` | Reproducible recurring-story membership derived from vectors and structured evidence |
+| `observations` | story position in a capture |
+| `article_snapshots` | fetched article version |
+| `scrape_runs` | collection attempt |
+| `story_signals` | labelled article version |
+| `article_embeddings` | embedded article version |
+| `recurring_events` | article in a recurring-story cluster |
 
-Stable `story_id` values come from normalized canonical URLs. Every Parquet file carries a schema
-version, and publication uses idempotent record keys so rerunning a workflow does not duplicate a
-batch. The dataset cards document the complete schemas and the audited historical migration.
-
-### What the numbers mean
-
-- A front-page position is not a direct measure of editorial importance.
-- A Most Read rank is not an audience count.
-- Counts in the analyser describe captured positions or fetched article versions, not readership.
-- Collection covers selected regions of one BBC News web page, not apps, regional variants,
-  personalization, or every BBC property.
-- Scheduled jobs and page-structure changes can create visible gaps. Failed validation publishes no
-  partial observation batch.
-- Collection was switched off from 17 September 2026 (last capture 11:33 UTC) until 27 October 2026
-  (resumed 20:02 UTC). That period has no observations, article snapshots, or semantic labels, and
-  it cannot be backfilled.
-- From 27 August 2026 until 28 October 2026, GitHub's scheduler ran the hourly collection only
-  every three to six hours, giving about 2–7 captures a day instead of 24. Counts from that period
-  are not comparable with hourly periods without normalizing by the number of successful scrapes.
-
-See the [versioned methodology](https://alastairherd.github.io/bbc_news_logger/methodology/) for the
-full data contract, migration repairs, clustering thresholds, and limitations.
+Article HTML is in a separate
+[raw dataset](https://huggingface.co/datasets/AlastairH/bbc-news-logger-raw) so ordinary analysis
+does not download it.
 
 ## Run locally
 
-Requirements:
-
-- Python 3.10–3.12
-- [uv](https://docs.astral.sh/uv/)
-- Node.js 22
+Requires Python 3.10–3.12, [uv](https://docs.astral.sh/uv/) and Node.js 22.
 
 ```bash
-git clone https://github.com/alastairherd/bbc_news_logger.git
-cd bbc_news_logger
-
 uv sync --extra dev
 uv run pytest -q
-uv run ruff check .
 
-# Build the dashboard data from the public Hugging Face dataset
+# Build the site data from the public dataset, then start the site
 uv run bbc-news build-marts --output web/public/data
-
-cd web
-npm ci
-npm run dev
+cd web && npm ci && npm run dev
 ```
 
-The local Astro server prints the URL to open. The optional cited-answer service is not required for
-the rest of the interface.
-
-### Useful commands
+Other commands:
 
 ```bash
-# Parse and validate a live homepage response without publishing
-uv run bbc-news scrape
-
-# Publish a validated batch (requires HF_TOKEN)
-uv run bbc-news scrape --upload
-
-# Rebuild the static dashboard marts
-uv run bbc-news build-marts --output web/public/data
-
-# Compact append-only Hugging Face shards
+uv run bbc-news scrape                 # parse and validate a live capture without publishing
+uv run bbc-news scrape --upload        # publish it (needs HF_TOKEN)
 uv run bbc-news compact-dataset --publish
-```
-
-## Automation
-
-| Workflow | Schedule or trigger | Result |
-| --- | --- | --- |
-| Collect BBC News observations | Hourly at `:07`, dispatched by a Cloudflare cron | Validates both surfaces and publishes observations and run metadata |
-| Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global rate limit |
-| Refresh semantic analysis | Daily at `12:23 UTC` | Embeds and labels new content hashes in DeepSeek's off-peak window, checkpoints progress, and refreshes clusters |
-| Write weekly theme summaries | Mondays at `12:47 UTC` | DeepSeek writes cited summaries of the week's most-covered themes |
-| Alert on stalled collection | Dispatched by the Worker after 3 hours without a capture; every 4 hours as a backstop | Opens a `collection-alert` issue, which the next successful capture closes |
-| Compact the dataset | Weekly | Atomically folds incremental Parquet shards into compact bases |
-| Deploy the analyser | Every three hours and relevant pushes | Rebuilds public marts and deploys GitHub Pages |
-| Deploy the research Worker | Relevant Worker changes | Publishes the bounded DeepSeek synthesis endpoint |
-| CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks, and Worker tests |
-
-Actions use least-privilege permissions, locked dependencies, timeouts, concurrency controls, and
-caches. Generated data is never committed back to this repository.
-
-A monthly **Keep scheduled workflows active** workflow records a UTC timestamp in
-`.github/maintenance/last-keepalive.txt` on the first day of each month. This maintenance commit
-prevents GitHub's automatic disabling of public-repository schedules after 60 days without
-repository activity. It uses the built-in `GITHUB_TOKEN` with `contents: write`, needs no additional
-secrets, and can also be run manually. The token's commits do not trigger other push workflows.
-If branch protection later blocks direct bot pushes, this safeguard will need updating. It does
-not backfill missed observations or protect against GitHub outages or workflow failures.
-
-## Weekly theme summaries
-
-Each Monday the `Write weekly theme summaries` workflow takes the seven complete UTC days before
-the run, groups that week's labelled articles by theme, and keeps up to eight themes with at least
-three articles. Each theme's evidence is its newest 30 articles, numbered, with headline and
-one-sentence label summary. DeepSeek V4.1 Flash writes two or three neutral sentences per theme
-that cite those numbers; citations outside the evidence are removed. The summaries appear in the
-This week section of Trends.
-
-Before any request the job computes a worst-case cost from UTF-8 byte counts and capped output at
-peak, uncached prices. It refuses to run above `$0.10` per run or `$0.25` per calendar month,
-counting the billed cost recorded on every published summary row. A theme whose request fails is
-left out rather than retried.
-
-```bash
-# Report the themes and the cost bound without calling DeepSeek
+./scripts/refresh_semantics.sh 1000    # embed and label up to 1,000 new article versions
 uv run python -m bbc_news_logger.jobs.weekly --dry-run
-
-# Write and publish summaries (requires DEEPSEEK_API_KEY and HF_TOKEN)
-uv run python -m bbc_news_logger.jobs.weekly --publish
 ```
 
-<details>
-<summary><strong>Maintainer operations</strong></summary>
+## Scheduled jobs
 
-### Semantic enrichment
+| Job | When |
+| --- | --- |
+| Collect observations | Hourly at :07, started by the Cloudflare Worker |
+| Alert on stalled collection | When the Worker finds no capture for three hours |
+| Fetch article snapshots | Daily, 02:17 UTC |
+| Embed, label and cluster | Daily, 12:23 UTC (DeepSeek off-peak) |
+| Weekly theme summaries | Mondays, 12:47 UTC |
+| Compact the dataset | Weekly |
+| Deploy the site | Every three hours and on relevant pushes |
 
-`./scripts/refresh_semantics.sh` processes only new content hashes. Each successful paid response
-is written synchronously to a SQLite checkpoint before more work starts, then buffered into
-content-addressed Parquet shards for publication.
-
-```bash
-# Process up to 1,000 missing article versions
-./scripts/refresh_semantics.sh 1000
-
-# Use the regular monthly ledger
-./scripts/refresh_semantics.sh 1000 --monthly
-
-# Keep checkpoints and shards locally
-./scripts/refresh_semantics.sh 1000 --local-only
-```
-
-Paid labelling enforces a `$1.00` process ceiling, `$7.50` historical ceiling, and `$1.00` monthly
-incremental ceiling. Ambiguous failures are recorded without automatic paid retries. Unpublished
-checkpoint rows remain part of the cumulative spend ledger.
-
-DeepSeek bills double on weekdays from 01:00 to 04:00 and 06:00 to 10:00 UTC. Labelling defers any
-remaining work when a peak window starts, unless `--allow-peak` is passed to the script or selected
-when running the workflow manually.
-
-The `Refresh semantic analysis` workflow can run the BGE backlog on a GitHub-hosted CPU runner.
-Uploaded 256-vector checkpoints make timed-out runs resumable without repeating completed work.
-
-### Deployment configuration
-
-- Dataset publication uses the `HF_TOKEN` GitHub secret.
-- Worker deployment uses `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
-- Hourly collection is started by the research Worker's cron trigger, because GitHub drops many
-  scheduled runs. The Worker receives `DISPATCH_TOKEN`, a GitHub token that can dispatch Actions
-  workflows in this repository. The GitHub schedule remains as a fallback and skips itself when a
-  dispatch ran in the previous 50 minutes.
-- The same cron checks the dataset's commit log for the latest `Update observations for …` commit.
-  After three hours without one it dispatches `collection_alert.yml`, which opens the alert issue
-  with the built-in `GITHUB_TOKEN`, so `DISPATCH_TOKEN` needs no issue permissions.
-- Pages reads the synthesis endpoint from the `PUBLIC_RESEARCH_API_URL` repository variable.
-
-</details>
+A monthly workflow commits a timestamp so GitHub does not disable the schedules on a quiet
+repository.
 
 ## Repository layout
 
 ```text
-src/bbc_news_logger/   collector, schemas, publication, migration, marts, and scheduled jobs
-tests/                 parser, storage, migration, and mart contract tests
-web/                   Astro research interface and browser workers
-workers/research/      bounded cited-synthesis Cloudflare Worker
+src/bbc_news_logger/   collector, publication, migration, marts and scheduled jobs
+web/                   Astro site and browser workers
+workers/research/      Cloudflare Worker for collection dispatch and answers
+tests/                 Python tests
 datasets/              Hugging Face dataset cards
-.github/workflows/     collection, publication, CI, and deployment
+.github/workflows/     scheduled jobs, CI and deployment
 ```
 
-## References
+---
 
-The low-cost data-app architecture was informed by Spicy Data's
-[“A live data app for $0: DuckDB, Astro, and no BI tool”](https://spicydata.ai/blog/zero-dollar-data-app/).
-The retrieval-and-synthesis design also draws on the
-[Fenic Hacker News agent example](https://github.com/typedef-ai/fenic-examples/tree/main/hn_agent).
+This README was written with help from Claude Code and edited by me.
