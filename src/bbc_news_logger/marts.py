@@ -116,8 +116,7 @@ def _latest_week(weekly: pa.Table | None) -> dict[str, object]:
 
 
 def _records(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
-    # fetch_arrow_table works on DuckDB 1.4, which Fenic 0.13 pins for the shared lockfile.
-    table = cursor.fetch_arrow_table()
+    table = cursor.to_arrow_table()
     rows = table.to_pylist()
     for row in rows:
         for key, value in tuple(row.items()):

@@ -67,7 +67,7 @@ published to Hugging Face rather than committed to Git:
   kept separately so ordinary analysis does not download the largest field.
 
 Append-only Parquet shards make routine updates small. A weekly compare-and-swap compaction folds
-older shards into compressed base files without racing new collection writes. Dashboard and Fenic
+older shards into compressed base files without racing new collection writes. Dashboard and job
 readers see the base and incremental layers as the same logical tables.
 
 ## How it was made
@@ -196,12 +196,12 @@ uv run bbc-news compact-dataset --publish
 | Collect BBC News observations | Hourly at `:07`, dispatched by a Cloudflare cron | Validates both surfaces and publishes observations and run metadata |
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global rate limit |
 | Refresh semantic analysis | Daily at `12:23 UTC` | Embeds and labels new content hashes in DeepSeek's off-peak window, checkpoints progress, and refreshes clusters |
-| Write weekly theme summaries | Mondays at `12:47 UTC` | Fenic writes cited summaries of the week's most-covered themes |
+| Write weekly theme summaries | Mondays at `12:47 UTC` | DeepSeek writes cited summaries of the week's most-covered themes |
 | Alert on stalled collection | Dispatched by the Worker after 3 hours without a capture; every 4 hours as a backstop | Opens a `collection-alert` issue, which the next successful capture closes |
 | Compact the dataset | Weekly | Atomically folds incremental Parquet shards into compact bases |
 | Deploy the analyser | Every three hours and relevant pushes | Rebuilds public marts and deploys GitHub Pages |
 | Deploy the research Worker | Relevant Worker changes | Publishes the bounded DeepSeek synthesis endpoint |
-| CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks, Worker tests, and Fenic API checks |
+| CI | Pull requests and `main` | Runs Ruff, pytest, Astro checks, and Worker tests |
 
 Actions use least-privilege permissions, locked dependencies, timeouts, concurrency controls, and
 caches. Generated data is never committed back to this repository.
@@ -214,16 +214,27 @@ secrets, and can also be run manually. The token's commits do not trigger other 
 If branch protection later blocks direct bot pushes, this safeguard will need updating. It does
 not backfill missed observations or protect against GitHub outages or workflow failures.
 
-## Fenic
+## Weekly theme summaries
 
-[`services/fenic`](services/fenic/) holds the weekly theme summaries, which run on
-[Fenic](https://github.com/typedef-ai/fenic). Each Monday, Fenic's `semantic.map` writes two or
-three cited sentences for each of the week's most-covered themes, routed to DeepSeek V4.1 Flash
-through Fenic's OpenRouter provider and capped at $0.10 per run and $0.25 per month. They appear in
-the This week section of Trends.
+Each Monday the `Write weekly theme summaries` workflow takes the seven complete UTC days before
+the run, groups that week's labelled articles by theme, and keeps up to eight themes with at least
+three articles. Each theme's evidence is its newest 30 articles, numbered, with headline and
+one-sentence label summary. DeepSeek V4.1 Flash writes two or three neutral sentences per theme
+that cite those numbers; citations outside the evidence are removed. The summaries appear in the
+This week section of Trends.
 
-The daily embedding, labelling, and clustering jobs do not use Fenic; they live in
-`src/bbc_news_logger/jobs/`.
+Before any request the job computes a worst-case cost from UTF-8 byte counts and capped output at
+peak, uncached prices. It refuses to run above `$0.10` per run or `$0.25` per calendar month,
+counting the billed cost recorded on every published summary row. A theme whose request fails is
+left out rather than retried.
+
+```bash
+# Report the themes and the cost bound without calling DeepSeek
+uv run python -m bbc_news_logger.jobs.weekly --dry-run
+
+# Write and publish summaries (requires DEEPSEEK_API_KEY and HF_TOKEN)
+uv run python -m bbc_news_logger.jobs.weekly --publish
+```
 
 <details>
 <summary><strong>Maintainer operations</strong></summary>
@@ -277,7 +288,6 @@ Uploaded 256-vector checkpoints make timed-out runs resumable without repeating 
 src/bbc_news_logger/   collector, schemas, publication, migration, marts, and scheduled jobs
 tests/                 parser, storage, migration, and mart contract tests
 web/                   Astro research interface and browser workers
-services/fenic/        Fenic weekly theme summaries
 workers/research/      bounded cited-synthesis Cloudflare Worker
 datasets/              Hugging Face dataset cards
 .github/workflows/     collection, publication, CI, and deployment

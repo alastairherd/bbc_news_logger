@@ -1,4 +1,4 @@
-"""Inputs, limits, and outputs for weekly theme summaries written by the Fenic job."""
+"""Inputs, limits, and outputs for the weekly theme summaries job."""
 
 from __future__ import annotations
 
@@ -12,20 +12,18 @@ from typing import Any
 
 import pyarrow as pa
 
+from .deepseek import DEEPSEEK_MODEL, token_cost_usd
 from .titles import repair_title
 
 WEEKLY_PREFIX = "semantic/weekly"
-WEEKLY_MODEL = "deepseek/deepseek-v4.1-flash-1017"
-WEEKLY_PROMPT_VERSION = "2026-10-28-v1"
+WEEKLY_MODEL = DEEPSEEK_MODEL
+WEEKLY_PROMPT_VERSION = "2026-10-29-v2"
 MAX_THEMES = 8
 MIN_ARTICLES = 3
 MAX_EVIDENCE = 30
 MAX_SUMMARY_CHARACTERS = 320
 MAX_OUTPUT_TOKENS = 420
 PROMPT_OVERHEAD_TOKENS = 1_024
-# OpenRouter's price for DeepSeek V4.1 Flash, doubled so the bound also covers peak-priced routing.
-INPUT_USD_PER_MILLION = Decimal("0.30")
-OUTPUT_USD_PER_MILLION = Decimal("1.20")
 MAX_RUN_COST_USD = Decimal("0.10")
 MAX_MONTHLY_COST_USD = Decimal("0.25")
 CITATION = re.compile(r"\[(\d+)\]")
@@ -118,17 +116,20 @@ def theme_digests(
 
 
 def maximum_run_cost_usd(digests: Sequence[ThemeDigest], prompt: str) -> Decimal:
-    """Upper bound before any request: tokens never exceed UTF-8 bytes, and output is capped."""
+    """Upper bound before any request: tokens never exceed UTF-8 bytes, output is capped, and
+    every input token is priced as an uncached peak-time token."""
 
     input_tokens = sum(
         len(prompt.encode("utf-8")) + len(digest.evidence.encode("utf-8")) + PROMPT_OVERHEAD_TOKENS
         for digest in digests
     )
     output_tokens = MAX_OUTPUT_TOKENS * len(digests)
-    return (
-        Decimal(input_tokens) * INPUT_USD_PER_MILLION
-        + Decimal(output_tokens) * OUTPUT_USD_PER_MILLION
-    ) / Decimal(1_000_000)
+    return token_cost_usd(
+        cache_hit_input_tokens=0,
+        cache_miss_input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        peak=True,
+    )
 
 
 def monthly_spend_usd(existing: pa.Table | None, today: date) -> Decimal:
@@ -162,7 +163,8 @@ def summary_rows(
     run_cost_usd: float,
     generated_at: datetime,
 ) -> pa.Table:
-    share = run_cost_usd / max(len(digests), 1)
+    # The whole run cost lands on the published rows, so the monthly ledger never undercounts.
+    share = run_cost_usd / max(sum(1 for summary in summaries if summary.strip()), 1)
     rows = [
         {
             "week_start": start.date(),

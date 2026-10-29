@@ -259,3 +259,29 @@ def test_batch_parser_rejects_partial_paid_response() -> None:
             json.dumps({"articles": [{"id": "hash-a", **json.loads(signal_json())}]}),
             ["hash-a", "hash-b"],
         )
+
+
+def test_complete_json_returns_the_object_and_its_usage() -> None:
+    session = FakeSession(
+        FakeResponse(
+            {
+                "choices": [{"message": {"content": '{"summary": "Talks resumed [1]."}'}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+            }
+        )
+    )
+    content, usage = DeepSeekClient("key", session=session).complete_json(
+        system_prompt="Return JSON.", user_content="Articles", max_tokens=50
+    )
+    assert content == {"summary": "Talks resumed [1]."}
+    assert usage.completion_tokens == 20
+    assert session.request["json"]["max_tokens"] == 50
+    assert session.request["json"]["response_format"] == {"type": "json_object"}
+
+    session.response = FakeResponse(
+        {"choices": [{"message": {"content": "[]"}}], "usage": {"prompt_tokens": 1}}
+    )
+    with pytest.raises(DeepSeekError, match="non-object"):
+        DeepSeekClient("key", session=session).complete_json(
+            system_prompt="Return JSON.", user_content="Articles", max_tokens=50
+        )

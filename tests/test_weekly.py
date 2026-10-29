@@ -120,6 +120,16 @@ def test_rows_drop_unknown_citations_and_empty_summaries() -> None:
     )
     assert table.to_pylist()[0]["summary"] == "Coverage grew [1]."
     assert table.to_pylist()[0]["week_end"] == date(2026, 10, 25)
+    two_themes = [digests[0], digests[0]]
+    partial = summary_rows(
+        two_themes,
+        ["Grew [1].", ""],
+        start=START,
+        end=END,
+        run_cost_usd=0.004,
+        generated_at=generated,
+    )
+    assert partial.column("cost_usd").to_pylist() == [0.004]
     assert (
         summary_rows(
             digests, ["  "], start=START, end=END, run_cost_usd=0.0, generated_at=generated

@@ -23,10 +23,9 @@ data/
 site-data/
 dist/
 
-# Local Fenic state
+# Local DuckDB state
 *.duckdb
 *.duckdb.wal
-.fenic/
 
 # Impeccable review captures are regenerated on each design review.
 .impeccable/review/

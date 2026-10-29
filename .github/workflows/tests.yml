@@ -55,14 +55,3 @@ jobs:
         with:
           node-version: 22
       - run: npm test
-
-  fenic-api:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v8.3.2
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: uv sync --frozen --extra semantic
-      - run: uv run --no-sync fenic check services/fenic/weekly.py

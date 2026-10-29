@@ -480,3 +480,20 @@ class DeepSeekClient:
             usage=usage,
             response_id=str(payload.get("id", "")),
         )
+
+    def complete_json(
+        self, *, system_prompt: str, user_content: str, max_tokens: int
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        """One JSON-mode completion for callers that bring their own prompt and parsing."""
+
+        payload, peak = self._complete(
+            system_prompt=system_prompt, user_content=user_content, max_tokens=max_tokens
+        )
+        try:
+            content = json.loads(payload["choices"][0]["message"]["content"])
+            usage = parse_usage(payload["usage"], peak=peak)
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise DeepSeekError("DeepSeek returned an incomplete completion response") from exc
+        if not isinstance(content, dict):
+            raise DeepSeekError("DeepSeek returned a non-object JSON completion")
+        return content, usage
