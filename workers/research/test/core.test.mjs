@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { InputError, deepSeekRequest, isPeakPricing, maximumRequestCostUsd, normalizeRequest, parseCompletion, reserveSpend, settleSpend } from "../src/core.mjs";
-import { COLLECTION_DISPATCH_URL, dispatchCollection } from "../src/schedule.mjs";
+import { ALERT_DISPATCH_URL, COLLECTION_DISPATCH_URL, DATASET_COMMITS_URL, checkCollection, collectionState, dispatchCollection } from "../src/schedule.mjs";
 
 const row = {
   title: "Talks resume after summit",
@@ -39,14 +39,16 @@ test("DeepSeek request defaults to bounded non-thinking mode", () => {
   assert.match(body.messages[0].content, /Never turn correlation, allegation, or concern into proven causation/);
 });
 
-test("DeepSeek request supports bounded high and maximum reasoning", () => {
+test("DeepSeek request supports bounded high reasoning only", () => {
   const high = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "high");
   assert.deepEqual(high.thinking, { type: "enabled" });
   assert.equal(high.reasoning_effort, "high");
   assert.equal(high.max_tokens, 2500);
-  const maximum = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "max");
-  assert.equal(maximum.reasoning_effort, "max");
-  assert.equal(maximum.max_tokens, 5000);
+  // The retired Deep analysis mode falls back to the fast default.
+  const retired = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "max");
+  assert.deepEqual(retired.thinking, { type: "disabled" });
+  assert.equal(retired.max_tokens, 900);
+  assert.equal(normalizeRequest({ query: "What changed?", evidence: [row], reasoning: "max" }).reasoning, "off");
 });
 
 test("peak pricing covers weekday UTC windows only", () => {
@@ -97,13 +99,13 @@ test("scheduled collection reports missing tokens and GitHub errors", async () =
 
 test("the reserved cost bounds the billed cost of the largest request", () => {
   const evidence = Array.from({ length: 20 }, (_, index) => ({ ...row, id: index + 1, summary: "x".repeat(1200) }));
-  const request = deepSeekRequest("q".repeat(400), evidence, "max");
+  const request = deepSeekRequest("q".repeat(400), evidence, "high");
   const reserved = maximumRequestCostUsd(request);
   const promptBytes = new TextEncoder().encode(JSON.stringify(request.messages)).length;
   const billed = parseCompletion({
     choices: [{ message: { content: JSON.stringify({ answer: "A [1].", findings: [], limitations: "" }) } }],
     usage: { prompt_tokens: promptBytes, prompt_cache_miss_tokens: promptBytes, completion_tokens: request.max_tokens },
-  }, 20, "max", new Date("2026-10-28T02:00:00Z")).usage.costUsd;
+  }, 20, "high", new Date("2026-10-28T02:00:00Z")).usage.costUsd;
   assert.ok(reserved >= billed);
   assert.ok(reserved < 0.05);
 });
@@ -119,4 +121,43 @@ test("the daily ledger refuses spend past its limit and resets each UTC day", ()
   const nextDay = reserveSpend(settled, { day: "2026-10-29", amountUsd: 0.3, limitUsd: 0.5 });
   assert.deepEqual(nextDay, { ok: true, ledger: { day: "2026-10-29", spentUsd: 0.3 } });
   assert.equal(settleSpend(nextDay.ledger, { day: "2026-10-28", reservedUsd: 0.3, actualUsd: 0.01 }), null);
+});
+
+const NOW = new Date("2026-10-29T18:07:00Z");
+const capture = (date) => ({ title: "Update observations for 2026-10-29", date });
+const other = (date) => ({ title: "Add semantic signal shard", date });
+
+test("collection state finds the newest capture commit", () => {
+  assert.deepEqual(
+    collectionState([other("2026-10-29T18:00:00Z"), capture("2026-10-29T17:07:22Z"), capture("2026-10-29T16:07:22Z")], NOW),
+    { stale: false, lastCaptureAt: "2026-10-29T17:07:22.000Z" },
+  );
+  assert.equal(collectionState([capture("2026-10-29T15:06:00Z")], NOW).stale, true);
+  assert.equal(collectionState([capture("2026-10-29T15:08:00Z")], NOW).stale, false);
+});
+
+test("collection state bounds the capture age when no capture commit is listed", () => {
+  // Every listed commit is newer than three hours, so the last capture may still be recent.
+  assert.deepEqual(collectionState([other("2026-10-29T18:00:00Z"), other("2026-10-29T16:00:00Z")], NOW), { stale: false, lastCaptureAt: null });
+  assert.deepEqual(collectionState([other("2026-10-29T18:00:00Z"), other("2026-10-29T12:00:00Z")], NOW), { stale: true, lastCaptureAt: null });
+  assert.deepEqual(collectionState([], NOW), { stale: false, lastCaptureAt: null });
+});
+
+test("collection check dispatches the alert workflow only when captures are stale", async () => {
+  const run = async (commits) => {
+    const calls = [];
+    const fakeFetch = async (url, init) => {
+      calls.push({ url, init });
+      return url === DATASET_COMMITS_URL ? Response.json(commits) : new Response(null, { status: 204 });
+    };
+    return { result: await checkCollection("token-value", fakeFetch, NOW), calls };
+  };
+  const fresh = await run([capture("2026-10-29T17:07:22Z")]);
+  assert.equal(fresh.result.alerted, false);
+  assert.equal(fresh.calls.length, 1);
+  const stale = await run([capture("2026-10-29T13:07:22Z")]);
+  assert.deepEqual(stale.result, { stale: true, lastCaptureAt: "2026-10-29T13:07:22.000Z", alerted: true });
+  assert.equal(stale.calls[1].url, ALERT_DISPATCH_URL);
+  assert.deepEqual(JSON.parse(stale.calls[1].init.body), { ref: "main" });
+  await assert.rejects(checkCollection("token-value", async () => new Response("", { status: 503 }), NOW), /HTTP 503/);
 });

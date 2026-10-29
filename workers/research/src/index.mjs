@@ -1,5 +1,5 @@
 import { InputError, MODEL, deepSeekRequest, maximumRequestCostUsd, normalizeRequest, parseCompletion } from "./core.mjs";
-import { dispatchCollection } from "./schedule.mjs";
+import { checkCollection, dispatchCollection } from "./schedule.mjs";
 
 export { AnswerBudget } from "./budget.mjs";
 
@@ -11,7 +11,7 @@ const ALLOWED_ORIGINS = new Set([
 const PROMPT_VERSION = "2026-07-14-v2";
 const requestsByClient = new Map();
 const DEFAULT_DAILY_BUDGET_USD = 0.5;
-const BUDGET_EXHAUSTED = "Today's shared answer budget has been used. Answers resume after midnight UTC, or you can use your own DeepSeek key on this page.";
+const BUDGET_EXHAUSTED = "Today's shared answer budget has been used. Answers resume after midnight UTC.";
 
 function answerBudget(env) {
   return env.ANSWER_BUDGET?.get(env.ANSWER_BUDGET.idFromName("global"));
@@ -68,7 +68,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/health") {
       const budget = answerBudget(env);
       const answerBudgetStatus = budget ? { limitUsd: dailyLimitUsd(env), spentUsd: await budget.spent(utcDay()) } : null;
-      return json({ status: "ok", model: MODEL, runtime: "cloudflare-workers", reasoningModes: ["off", "high", "max"], answerBudget: answerBudgetStatus }, 200, origin);
+      return json({ status: "ok", model: MODEL, runtime: "cloudflare-workers", reasoningModes: ["off", "high"], answerBudget: answerBudgetStatus }, 200, origin);
     }
     if (request.method !== "POST" || url.pathname !== "/api/research") {
       return json({ detail: "Not found." }, 404, origin);
@@ -127,6 +127,8 @@ export default {
   },
 
   async scheduled(_controller, env, context) {
+    // Independent, so a failed collection dispatch still lets the staleness check raise an alert.
     context.waitUntil(dispatchCollection(env.DISPATCH_TOKEN));
+    context.waitUntil(checkCollection(env.DISPATCH_TOKEN));
   },
 };

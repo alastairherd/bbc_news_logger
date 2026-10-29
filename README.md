@@ -21,6 +21,7 @@ BBC's terms and copyright.
 | **Overview** | Recent theme momentum, differences between the front page and Most Read, story-form mix, collection health, and returning stories |
 | **Explore** | A filterable, paginated story archive with article links and semantically related coverage |
 | **Ask & analyse** | Local semantic search, optional cited synthesis, 120-day signal trends, and recurring-story timelines |
+| **Promotion vs attention** | Which promoted stories reach Most Read, which are read without promotion, the delay between the two, by theme and by month |
 | **Methodology** | Collection rules, schemas, validation, semantic methods, known gaps, and interpretive limits |
 
 ### Ask the archive
@@ -35,9 +36,7 @@ the source material remains inspectable.
   Cloudflare Worker; it does not send the full archive. The Worker enforces a shared daily
   spending cap (`DAILY_BUDGET_USD`, $0.50 per UTC day by default) by reserving each request's
   worst-case cost in a Durable Object before calling DeepSeek and settling the billed cost after.
-- A visitor-supplied DeepSeek key is kept in session storage for that browser tab and sent directly
-  to DeepSeek instead of this project.
-- Fast, Reasoned, and Deep analysis modes control the bounded DeepSeek thinking allowance.
+- Fast and Reasoned modes control the bounded DeepSeek thinking allowance.
 - Source search, trends, and recurring-story exploration remain available if synthesis is offline.
 
 Generated labels, clusters, and answers are discovery aids. They can be incomplete or wrong and
@@ -198,6 +197,7 @@ uv run bbc-news compact-dataset --publish
 | Fetch daily article snapshots | Daily at `02:17 UTC` | Fetches the previous day's distinct URLs with a global rate limit |
 | Refresh semantic analysis | Daily at `12:23 UTC` | Embeds and labels new content hashes in DeepSeek's off-peak window, checkpoints progress, and refreshes clusters |
 | Write weekly theme summaries | Mondays at `12:47 UTC` | Fenic writes cited summaries of the week's most-covered themes |
+| Alert on stalled collection | Dispatched by the Worker after 3 hours without a capture; every 4 hours as a backstop | Opens a `collection-alert` issue, which the next successful capture closes |
 | Compact the dataset | Weekly | Atomically folds incremental Parquet shards into compact bases |
 | Deploy the analyser | Every three hours and relevant pushes | Rebuilds public marts and deploys GitHub Pages |
 | Deploy the research Worker | Relevant Worker changes | Publishes the bounded DeepSeek synthesis endpoint |
@@ -214,17 +214,13 @@ secrets, and can also be run manually. The token's commits do not trigger other 
 If branch protection later blocks direct bot pushes, this safeguard will need updating. It does
 not backfill missed observations or protect against GitHub outages or workflow failures.
 
-## Fenic and MCP
+## Fenic
 
-[`services/fenic`](services/fenic/) holds the parts that run on
-[Fenic](https://github.com/typedef-ai/fenic):
-
-- **Weekly theme summaries.** Each Monday, Fenic's `semantic.map` writes two or three cited
-  sentences for each of the week's most-covered themes, routed to DeepSeek V4.1 Flash through
-  Fenic's OpenRouter provider and capped at $0.10 per run and $0.25 per month. They appear in the
-  This week section of Trends.
-- **An optional MCP research service**, which materializes a persistent Fenic catalog over the
-  Hugging Face tables and exposes bounded schema, profile, search, read, and SQL-analysis tools.
+[`services/fenic`](services/fenic/) holds the weekly theme summaries, which run on
+[Fenic](https://github.com/typedef-ai/fenic). Each Monday, Fenic's `semantic.map` writes two or
+three cited sentences for each of the week's most-covered themes, routed to DeepSeek V4.1 Flash
+through Fenic's OpenRouter provider and capped at $0.10 per run and $0.25 per month. They appear in
+the This week section of Trends.
 
 The daily embedding, labelling, and clustering jobs do not use Fenic; they live in
 `src/bbc_news_logger/jobs/`.
@@ -268,6 +264,9 @@ Uploaded 256-vector checkpoints make timed-out runs resumable without repeating 
   scheduled runs. The Worker receives `DISPATCH_TOKEN`, a GitHub token that can dispatch Actions
   workflows in this repository. The GitHub schedule remains as a fallback and skips itself when a
   dispatch ran in the previous 50 minutes.
+- The same cron checks the dataset's commit log for the latest `Update observations for …` commit.
+  After three hours without one it dispatches `collection_alert.yml`, which opens the alert issue
+  with the built-in `GITHUB_TOKEN`, so `DISPATCH_TOKEN` needs no issue permissions.
 - Pages reads the synthesis endpoint from the `PUBLIC_RESEARCH_API_URL` repository variable.
 
 </details>
@@ -278,7 +277,7 @@ Uploaded 256-vector checkpoints make timed-out runs resumable without repeating 
 src/bbc_news_logger/   collector, schemas, publication, migration, marts, and scheduled jobs
 tests/                 parser, storage, migration, and mart contract tests
 web/                   Astro research interface and browser workers
-services/fenic/        Fenic weekly summaries and optional MCP service
+services/fenic/        Fenic weekly theme summaries
 workers/research/      bounded cited-synthesis Cloudflare Worker
 datasets/              Hugging Face dataset cards
 .github/workflows/     collection, publication, CI, and deployment

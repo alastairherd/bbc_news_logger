@@ -330,12 +330,6 @@
   .ask-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; gap: .75rem 1rem; margin-top: 1rem; }
   .ask-filters small { color: var(--muted); font-size: .75rem; }
   .search-summary { max-width: none; margin-top: .75rem; color: var(--muted); font-size: .875rem; }
-  .key-access { margin-top: .75rem; font-size: .875rem; }
-  .key-access summary { width: max-content; color: var(--red); font-weight: 600; cursor: pointer; }
-  .key-access summary:hover { color: var(--red-hover); text-decoration: underline; }
-  .key-access > div { margin-top: .75rem; padding: 1rem 1.25rem; background: var(--surface); }
-  .key-access p { max-width: 70ch; }
-  .key-row { display: grid; grid-template-columns: minmax(12rem, 1fr) auto auto; gap: .5rem; margin: .75rem 0 .5rem; }
 
   .answer { margin-top: 1.5rem; padding: 1.25rem 1.5rem 1.5rem; border-top: 2px solid var(--ink); background: var(--surface); }
   .answer[hidden] { display: none; }
@@ -376,6 +370,34 @@
   .change-list li.share-row { display: grid; grid-template-columns: minmax(0, 1fr) 3.5rem 3rem; align-items: center; gap: .75rem; }
   .share-bar { height: .375rem; background: var(--line); }
   .share-bar i { display: block; height: 100%; background: var(--ink); }
+  .share-bar.share-read i { background: var(--red); }
+
+  /* Promotion vs attention: ink is the front page, red is Most Read, as in every chart. */
+  .outcome-bar { display: flex; gap: 2px; height: .75rem; margin-top: 1.25rem; }
+  .outcome-bar span { flex-basis: 0; min-width: 2px; }
+  .outcome-front { background: var(--ink); }
+  .outcome-both { background: repeating-linear-gradient(135deg, var(--ink) 0 3px, var(--red) 3px 6px); }
+  .outcome-read { background: var(--red); }
+  .outcome-columns, .example-columns { margin-top: 1rem; }
+  .outcome-columns h3 { font-size: 1rem; }
+  .outcome-figure { margin-top: .375rem; font-size: 2rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .outcome-figure.outcome-read { background: none; color: var(--red); }
+  .example-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lag-list { max-width: 48rem; }
+  .change-list.lag-list li.share-row { grid-template-columns: minmax(0, 3fr) minmax(3rem, 2fr) 3.25rem 3.25rem; }
+  .lag-list .figure { text-align: right; }
+  .data-scroll { max-height: 32rem; margin-top: 1rem; }
+  .data-table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+  .data-table thead th { position: sticky; top: 0; z-index: 1; background: var(--paper); color: var(--muted); text-align: left; vertical-align: bottom; }
+  .data-table th, .data-table td { padding: .5rem 1rem .5rem 0; border-bottom: 1px solid var(--line); }
+  .data-table tbody th { font-size: .9375rem; font-weight: 600; text-align: left; }
+  .data-table tbody th a { color: var(--red); text-decoration: none; }
+  .data-table tbody th a:hover { color: var(--red-hover); text-decoration: underline; }
+  .data-table .numeric { text-align: right; white-space: nowrap; }
+  .data-table .table-note { font-size: .75rem; font-weight: 400; }
+  .share-cell { min-width: 9rem; }
+  .share-cell .share-bar { display: inline-block; width: calc(100% - 3.75rem); max-width: 10rem; vertical-align: middle; }
+  .share-cell .figure { display: inline-block; width: 3.5rem; text-align: right; }
   .trend-controls { display: grid; grid-template-columns: 12rem 16rem auto; align-items: end; gap: .75rem 1rem; margin-top: 1.25rem; }
   .trend-controls .filter-count { padding-bottom: .625rem; white-space: normal; }
   .plot .trend-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
@@ -433,6 +455,7 @@
   .front-page { padding-right: 0; }
   .most-read { margin-top: 2rem; padding-left: 0; border-left: 0; }
   .changing-columns > section, .changing-columns > section:first-child { margin-top: 1.5rem; padding-inline: 0; border-left: 0; }
+  .example-columns { grid-template-columns: 1fr; }
   .article-grid { grid-template-columns: minmax(0, 1fr); padding-top: 1.25rem; }
   .contents { position: static; margin-bottom: 1.5rem; }
   .contents summary { cursor: pointer; }
@@ -448,8 +471,6 @@
   .filter-bar { position: static; }
   .ask-row { grid-template-columns: 1fr 1fr; }
   .ask-row .input-icon { grid-column: 1 / -1; }
-  .key-row { grid-template-columns: 1fr 1fr; }
-  .key-row input { grid-column: 1 / -1; }
   .event-timeline li { grid-template-columns: 1fr; gap: .25rem; }
   .page-head h1 { font-size: 1.5rem; }
   .article-head h1 { font-size: 1.875rem; }

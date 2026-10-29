@@ -10,7 +10,7 @@ Researchers and journalists investigating how BBC front-page promotion relates t
 
 ## Product Purpose
 
-Maintain a reliable public archive of BBC News observations and expose it as a fast research dashboard, queryable dataset, and bounded set of AI and MCP tools. Success means the archive remains current without growing the code repository, and every visible claim can be traced to captured observations.
+Maintain a reliable public archive of BBC News observations and expose it as a fast research dashboard, queryable dataset, and bounded, cited AI answers. Success means the archive remains current without growing the code repository, and every visible claim can be traced to captured observations.
 
 ## Brand Personality
 

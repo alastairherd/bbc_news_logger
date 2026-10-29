@@ -1,1 +1,1 @@
-"""Fenic-backed semantic and MCP service."""
+"""Fenic-backed weekly theme summaries."""

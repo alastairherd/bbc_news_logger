@@ -1,12 +1,8 @@
 # Fenic services
 
-This folder holds the parts of the project that run on [Fenic](https://github.com/typedef-ai/fenic):
-
-- **Weekly theme summaries** (`weekly.py`), which use Fenic's `semantic.map` to write cited
-  summaries of each week's most-covered themes.
-- **The MCP research service** (`bootstrap.py`, `serve.py`), which turns the public Hugging Face
-  dataset into Fenic catalog tables and exposes Fenic's bounded system tools over streamable HTTP
-  MCP at `/mcp`.
+This folder holds the part of the project that runs on [Fenic](https://github.com/typedef-ai/fenic):
+the weekly theme summaries (`weekly.py`), which use Fenic's `semantic.map` to write cited
+summaries of each week's most-covered themes.
 
 The daily embedding, labelling, and clustering jobs do not use Fenic and live in
 `src/bbc_news_logger/jobs/`.
@@ -36,21 +32,3 @@ job computes a worst-case cost from UTF-8 byte counts and capped output, at doub
 listed price. It refuses to run above `$0.10` per run or `$0.25` per calendar month, counting the
 cost Fenic reports for every published summary row. Results are published to `semantic/weekly/`
 and appear in the This week section of the Trends page.
-
-## MCP research service
-
-It is deliberately separate from the static site. If this service is stopped, data collection,
-the public dataset, and the GitHub Pages site continue working.
-
-```bash
-uv sync --extra semantic
-uv run --extra semantic python -m services.fenic.bootstrap
-uv run --extra semantic uvicorn services.fenic.serve:app --host 0.0.0.0 --port 7860
-```
-
-The public dataset does not require a Hugging Face token. Set `HF_TOKEN` to avoid anonymous API
-limits. The service's search, profile, read, and SQL analysis tools do not call a language model.
-Pass `--tables article_snapshots story_signals` to bootstrap only those catalog tables.
-
-The Docker image listens on port `7860` and persists its catalog beneath `/data`. A public service
-should set `FENIC_DB_PATH=/data` and mount durable storage there.

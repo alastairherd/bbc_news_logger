@@ -22,10 +22,8 @@ embedding = [
 ]
 semantic = [
     "fastembed>=0.7,<1",
-    "fastapi>=0.116,<1",
-    "fenic[mcp]>=0.13,<0.14",
+    "fenic>=0.13,<0.14",
     "numpy>=2,<3",
-    "uvicorn[standard]>=0.35,<1",
 ]
 dev = [
     "httpx>=0.28,<1",

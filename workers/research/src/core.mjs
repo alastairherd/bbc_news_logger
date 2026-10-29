@@ -1,6 +1,7 @@
 export const MODEL = "deepseek-flash";
 const MAX_EVIDENCE = 20;
-const OUTPUT_TOKENS = { off: 900, high: 2500, max: 5000 };
+const OUTPUT_TOKENS = { off: 900, high: 2500 };
+const REASONING_MODES = Object.keys(OUTPUT_TOKENS);
 // V4.1 Flash off-peak USD per million tokens; weekday peak windows (UTC) bill at double.
 const INPUT_CACHE_HIT_PRICE = 0.003;
 const INPUT_CACHE_MISS_PRICE = 0.15;
@@ -89,12 +90,12 @@ export function normalizeRequest(body) {
     });
   }
   if (!evidence.length) throw new InputError("No valid BBC evidence was supplied.");
-  const reasoning = ["off", "high", "max"].includes(body?.reasoning) ? body.reasoning : "off";
+  const reasoning = REASONING_MODES.includes(body?.reasoning) ? body.reasoning : "off";
   return { query, evidence, reasoning };
 }
 
 export function deepSeekRequest(query, evidence, reasoning = "off") {
-  const depth = ["off", "high", "max"].includes(reasoning) ? reasoning : "off";
+  const depth = REASONING_MODES.includes(reasoning) ? reasoning : "off";
   const request = {
     model: MODEL,
     messages: [
