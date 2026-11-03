@@ -62,10 +62,10 @@ import Layout from "../layouts/Layout.astro";
     <section class="trend-block" aria-labelledby="trend-heading">
       <div class="section-intro">
         <h2 id="trend-heading" class="rule-heading">Signal over time</h2>
-        <p>Pick a topic, theme, story form, or event type to see its daily article count over the latest 120 days.</p>
+        <p>Pick a topic, mid-level category, theme, story form, or event type to see its daily article count over the latest 120 days.</p>
       </div>
       <form class="trend-controls" id="trend-filters" hidden>
-        <div class="filter-field"><label for="dimension">Group by</label><select id="dimension" name="dimension"><option value="topic">Topic</option><option value="theme">Theme</option><option value="story_form">Story form</option><option value="event_type">Event type</option></select></div>
+        <div class="filter-field"><label for="dimension">Group by</label><select id="dimension" name="dimension"><option value="topic">Topic</option><option value="parent_theme">Category (46 parent themes)</option><option value="theme">Theme</option><option value="story_form">Story form</option><option value="event_type">Event type</option></select></div>
         <div class="filter-field"><label for="signal-value">Signal</label><select id="signal-value" name="value"><option>Preparing…</option></select></div>
         <p class="filter-count" id="trend-scope">Ranked by activity in the latest 120 days.</p>
       </form>
@@ -241,12 +241,17 @@ import Layout from "../layouts/Layout.astro";
         || `<li class="empty">No recurring-story clusters meet the matching threshold yet.</li>`;
     }
 
+    const initialParams = new URLSearchParams(location.search);
+    let initialDimension = initialParams.get("dimension");
+    let initialValue = initialParams.get("value");
+
     function setTrendValues(dimension: string, values: string[], available: number, limit: number) {
       control("#dimension").value = dimension;
       const select = control("#signal-value") as HTMLSelectElement;
-      const previous = select.value;
+      const previous = initialValue && dimension === (initialDimension || dimension) ? initialValue : select.value;
       select.innerHTML = values.length ? values.map((value) => `<option value="${escape(value)}">${escape(label(value))}</option>`).join("") : "<option>No active signals</option>";
       if (values.includes(previous)) select.value = previous;
+      initialValue = null;
       element("#trend-scope").textContent = available > limit
         ? `The ${number.format(values.length)} most active of ${number.format(available)} in the latest 120 days.`
         : "Ranked by activity in the latest 120 days.";
@@ -376,11 +381,18 @@ import Layout from "../layouts/Layout.astro";
       if (message.type === "trend-status") element("#trend-stage").textContent = message.message;
       if (message.type === "trend-ready") {
         trendReady = true;
-        control("#dimension").value = message.dimension;
         element("#trend-loader").hidden = true;
         element("#trend-filters").hidden = false;
         element("#trend-explorer").hidden = false;
-        setTrendValues(message.dimension, message.values, message.available, message.limit);
+        const allowedDims = ["topic", "parent_theme", "theme", "story_form", "event_type"];
+        if (initialDimension && allowedDims.includes(initialDimension) && initialDimension !== message.dimension) {
+          control("#dimension").value = initialDimension;
+          initialDimension = null;
+          requestTrendValues();
+        } else {
+          initialDimension = null;
+          setTrendValues(message.dimension, message.values, message.available, message.limit);
+        }
       }
       if (message.type === "trend-values" && message.dimension === control("#dimension").value) setTrendValues(message.dimension, message.values, message.available, message.limit);
       if (message.type === "trend-series" && message.requestId === trendRequestId) {

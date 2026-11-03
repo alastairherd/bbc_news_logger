@@ -109,6 +109,7 @@ function normalizeOntology(raw) {
       const settled = boundedInt(item.promotion.settled_stories, 0, 100_000);
       if (settled !== null && settled > 0) {
         promotion = {
+          scope: item?.promotion_inherited && parentTheme ? `parent_theme (${parentTheme})` : "theme",
           settled_stories: settled,
           promoted_only: boundedInt(item.promotion.promoted_only, 0, 100_000) ?? 0,
           read_only: boundedInt(item.promotion.read_only, 0, 100_000) ?? 0,

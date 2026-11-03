@@ -115,16 +115,6 @@ examples:
 - The Trends page froze the browser. Profiling showed it was building 26,521 theme options and
   rescanning 70,685 rows on the main thread. Moving the indexing into a Web Worker and listing only
   the most active themes fixed it.
-- Ask the archive could originally see only the twenty articles returned by vector search, so broad
-  questions about how often a topic reached Most Read or how long coverage ran could only be
-  answered from that sample. Adapting the reconciliation and semantic-layer ideas from NVIDIA's
-  Auto Ontology, the pipeline now normalises free-form themes and named entities on read (merging
-  variants such as “The NHS” and “NHS”, or “Sir Keir Starmer” and “Keir Starmer”, without
-  rewriting the stored labels), maps canonical themes onto a 46-category mid-level hierarchy, links
-  recurring named entities to Wikidata Q-IDs, and writes a static ontology mart with archive-wide
-  story counts, promotion reach rates and recurring-event spans. The browser worker matches those
-  concepts alongside the vector search so answers can cite both specific articles (`[1]`–`[20]`) and
-  archive-level statistics (`[T1]`, `[E1]`, `[R1]`).
 - Nothing on the site showed the six-week outage, or that GitHub had been running the hourly job
   only every few hours. A Cloudflare cron now starts collection, and a GitHub issue is opened if no
   capture lands for three hours.
@@ -138,6 +128,60 @@ examples:
   against its source. They found answers that treated the date an article was fetched as the date
   of the event, and a race condition that could attach an answer to the wrong query's sources. Both
   are fixed, along with most of their usability notes.
+
+### Why build an ontology instead of relying on raw ranked retrieval?
+
+Originally, **Ask the archive** and the trend charts relied directly on the raw labels returned by
+the language model and the top twenty articles returned by vector search. That ran into four
+problems across a 20,000-article archive:
+
+1. **Label fragmentation across thousands of daily calls.** Because articles are labelled in small
+   daily batches, the model invents slightly different strings for the same concept over time:
+   `"UK_politics"`, `"British politics"` and `"UK politics"`, or `"Sir Keir Starmer"`,
+   `"Prime Minister Keir Starmer"` and `"Keir Starmer"`, or `"Prince Andrew"` and
+   `"Andrew Mountbatten-Windsor"`. Counting raw strings splits one person or theme across several
+   rows and undercounts every longitudinal trend.
+2. **Sample blindness in top-20 vector search.** Vector similarity returns the twenty closest
+   articles to a question, which is good for finding examples and poor for answering archive-wide
+   questions (*“How often do NHS waiting-list stories reach Most Read?”* or *“How many stories has
+   the archive captured on Keir Starmer?”*). In the old setup, the answer model could only count
+   within its twenty-article sample, or one large continuing story could fill most of the twenty
+   slots and crowd out the rest of the year's coverage.
+3. **Too flat a jump from 11 topics to 2,360 themes.** Top-level topics (`politics`, `world`,
+   `health`) are too broad to compare editorial promotion against reader attention, while most of
+   the 2,360 fine-grained themes appear in fewer than thirty paired captures—too small a sample to
+   calculate a reliable promotion reach rate on their own.
+4. **Ambiguous names and abbreviations.** Short strings such as `"US"`, `"UN"`, `"Met"`, `"ICE"` or
+   `"Chelsea"`, and compound phrases such as `"prison reform"` or `"labour market"`, easily collide
+   with stopwords or unrelated political parties (`"Reform UK"`, `"Labour Party"`) under naive
+   substring matching.
+
+Adapting the reconciliation and semantic-layer ideas from NVIDIA's
+[Auto Ontology](https://github.com/NVIDIA/auto-ontology) to fit a static, zero-server site, the
+pipeline now adds a governed ontology layer on top of the immutable Parquet shards:
+
+- **Deterministic read-time reconciliation (`ontology.py`).** Stored `semantic/signals` shards are
+  never rewritten. Instead, when marts, clusters and weekly summaries are built, synonyms, plural
+  variants, institutional abbreviations and honorifics are folded into canonical theme and entity
+  names with deterministic tie-breaking, while preserving institutional titles (*“Archbishop of
+  Canterbury”*, *“Mayor of Paris”*) and place names (*“The Hague”*, *“The Gambia”*).
+- **A 46-category mid-level taxonomy (`semantic/taxonomy`).** Every canonical theme appearing in
+  five or more stories is mapped incrementally into one of 46 controlled parent categories (such as
+  *UK government & Westminster*, *NHS & healthcare services*, *Middle East conflict*, or
+  *Migration, asylum & borders*). That gives the **Trends** and **Promotion vs attention** pages a
+  complete mid-level view where all 46 categories clear the 30-story statistical floor, and lets
+  smaller themes in **Ask the archive** inherit their parent category's promotion baseline.
+- **Wikidata entity linking (`semantic/wikidata`).** The top 400 recurring entities are linked
+  incrementally to Wikidata Q-IDs (`Q145`, `Q6383803`), entity types (`person`, `organisation`,
+  `location`, `event`) and short descriptions, disambiguating people, places and institutions and
+  connecting the archive to external datasets.
+- **Concept-aware hybrid retrieval and dual citations.** In the browser worker, queries are scanned
+  from 4-word phrases down to single words on strict token boundaries before blending with BGE
+  vector similarity, and each recurring event cluster is capped at four results in the top twenty so
+  one story cannot monopolise the evidence. Matched theme (`[T1]`), entity (`[E1]`) and
+  continuing-story (`[R1]`) records are shown above the search results and passed to DeepSeek
+  alongside the twenty articles (`[1]`–`[20]`), so synthesized answers can cite individual reports
+  for specific claims and ontology records for archive-wide totals and promotion rates.
 
 ## Reading the data
 

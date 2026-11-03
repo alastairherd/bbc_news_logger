@@ -41,6 +41,7 @@ export interface OntologyTheme {
   front_page_stories: number;
   most_read_stories: number;
   promotion: OntologyPromotionStats | null;
+  promotion_inherited?: boolean;
 }
 
 export interface OntologyParentTheme {
@@ -302,7 +303,7 @@ export function buildOntologyLookup(ontology: SemanticOntology | null | undefine
       : undefined;
     const enrichedTheme: OntologyTheme =
       theme.promotion === null && parentRecord?.promotion
-        ? { ...theme, promotion: parentRecord.promotion }
+        ? { ...theme, promotion: parentRecord.promotion, promotion_inherited: true }
         : theme;
     const candidates = [theme.name, ...(theme.aliases ?? [])];
     for (const candidate of candidates) {
@@ -429,25 +430,34 @@ export function resolveQueryConcepts(
       if (entity && !matchedEntities.has(entity.name)) {
         matchedEntities.set(entity.name, entity);
       }
-      // If both an entity and a theme have the exact same normalized name (e.g. "Strait of Hormuz"
-      // or "Donald Trump"), keep the entity record unless the theme carries settled promotion stats.
+      // If both an entity and a theme match the same phrase (or have the same normalized name),
+      // keep the entity record unless the theme has its own settled promotion stats (>= 30 stories).
       if (theme && !matchedThemes.has(theme.name)) {
-        const sameNamedEntity =
-          entity && normalizePhrase(entity.name) === normalizePhrase(theme.name);
-        if (!sameNamedEntity || theme.promotion !== null) {
+        const hasOwnPromotion = theme.promotion !== null && !theme.promotion_inherited;
+        const duplicatesEntity =
+          entity !== undefined &&
+          (normalizePhrase(entity.name) === normalizePhrase(theme.name) ||
+            (entity.aliases ?? []).some(
+              (alias) => normalizePhrase(alias) === normalizePhrase(theme.name),
+            ));
+        if (!duplicatesEntity || hasOwnPromotion) {
           matchedThemes.set(theme.name, theme);
         }
       }
     }
   }
 
-  // Final pass: if a theme has the same normalized name as any matched entity and lacks
-  // settled promotion stats, drop the duplicate theme chip.
+  // Final pass: if a theme has the same normalized name (or alias) as any matched entity and lacks
+  // its own settled promotion stats, drop the duplicate theme chip.
   const entityNormNames = new Set(
-    [...matchedEntities.values()].map((entity) => normalizePhrase(entity.name)),
+    [...matchedEntities.values()].flatMap((entity) => [
+      normalizePhrase(entity.name),
+      ...(entity.aliases ?? []).map((alias) => normalizePhrase(alias)),
+    ]),
   );
   for (const [themeName, theme] of [...matchedThemes.entries()]) {
-    if (entityNormNames.has(normalizePhrase(themeName)) && theme.promotion === null) {
+    const hasOwnPromotion = theme.promotion !== null && !theme.promotion_inherited;
+    if (entityNormNames.has(normalizePhrase(themeName)) && !hasOwnPromotion) {
       matchedThemes.delete(themeName);
     }
   }

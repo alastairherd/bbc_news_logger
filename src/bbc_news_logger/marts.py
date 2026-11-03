@@ -705,17 +705,25 @@ def _semantic_payloads(
     taxonomy: pa.Table | None = None,
     wikidata: pa.Table | None = None,
 ) -> tuple[dict[str, object], bytes, dict[str, object]]:
+    tax_lookup = _taxonomy_lookup(taxonomy)
     counts: Counter[tuple[str, str, str]] = Counter()
     for content_hash, signal in signal_by_hash.items():
         article = article_by_hash.get(content_hash)
         if article is None:
             continue
         day = str(article["fetched_at"].date())
-        counts[(day, "topic", str(signal["topic"]))] += 1
+        topic = str(signal["topic"])
+        counts[(day, "topic", topic)] += 1
         counts[(day, "story_form", str(signal["story_form"]))] += 1
         counts[(day, "event_type", str(signal["event_type"]))] += 1
-        for theme in signal.get("themes") or []:
-            counts[(day, "theme", str(theme))] += 1
+        parents_seen: set[str] = set()
+        for raw_theme in signal.get("themes") or []:
+            theme = str(raw_theme)
+            counts[(day, "theme", theme)] += 1
+            parent = tax_lookup.get(theme.casefold()) or heuristic_parent_theme(theme, topic)
+            parents_seen.add(parent)
+        for parent in parents_seen:
+            counts[(day, "parent_theme", parent)] += 1
     trends = [
         {"observed_date": day, "dimension": dimension, "value": value, "article_count": count}
         for (day, dimension, value), count in sorted(counts.items())

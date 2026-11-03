@@ -90,6 +90,13 @@ import Layout from "../layouts/Layout.astro";
         </div>
         <form class="trend-controls" id="theme-controls">
           <div class="filter-field">
+            <label for="theme-level">Level</label>
+            <select id="theme-level">
+              <option value="parent">Category (46 parent themes)</option>
+              <option value="theme">Fine-grained theme</option>
+            </select>
+          </div>
+          <div class="filter-field">
             <label for="theme-sort">Sort by</label>
             <select id="theme-sort">
               <option value="stories">Most stories</option>
@@ -102,7 +109,7 @@ import Layout from "../layouts/Layout.astro";
             <label for="theme-filter">Filter themes</label>
             <span class="input-icon">
               <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.25" /><path d="m10.25 10.25 3.25 3.25" /></svg>
-              <input id="theme-filter" type="search" placeholder="Theme" autocomplete="off" />
+              <input id="theme-filter" type="search" placeholder="Category or theme" autocomplete="off" />
             </span>
           </div>
           <p class="filter-count" id="theme-count" aria-live="polite">—</p>
@@ -112,7 +119,7 @@ import Layout from "../layouts/Layout.astro";
             <caption class="sr-only">Promotion and Most Read outcomes by theme</caption>
             <thead>
               <tr>
-                <th scope="col">Theme</th>
+                <th scope="col" id="theme-col-head">Category</th>
                 <th scope="col" class="numeric">Stories</th>
                 <th scope="col">Promoted that reached Most Read</th>
                 <th scope="col">Most Read never promoted</th>
@@ -156,12 +163,13 @@ import Layout from "../layouts/Layout.astro";
 
     interface Outcomes { stories: number; promotedOnly: number; readOnly: number; both: number; reachRate: number | null; unpromotedShare: number | null }
     interface ThemeRow extends Outcomes { theme: string; promotedFirst: number; medianLagMinutes: number | null }
+    interface ParentThemeRow extends Outcomes { parent_theme: string; promotedFirst: number; medianLagMinutes: number | null }
     interface MonthRow extends Outcomes { month: string; captures: number }
     interface LagBucket { bucket: string; label: string; count: number; share: number | null }
     interface Example { storyId: string; title: string; url: string; firstSeen: string; captures: number; bestPosition: number }
     interface Promotion {
       settleHours: number; firstSeen: string | null; lastSeen: string | null; unsettledStories: number; singleSurfaceCaptures: number;
-      totals: Outcomes; labelledStories: number; lag: LagBucket[]; themes: ThemeRow[]; months: MonthRow[];
+      totals: Outcomes; labelledStories: number; lag: LagBucket[]; themes: ThemeRow[]; parentThemes?: ParentThemeRow[]; months: MonthRow[];
       examples: { readOnly: Example[]; promotedOnly: Example[] };
     }
 
@@ -174,6 +182,7 @@ import Layout from "../layouts/Layout.astro";
     const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
     const monthName = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
     let themes: ThemeRow[] = [];
+    let parentThemes: ThemeRow[] = [];
 
     const escape = (value: unknown): string => {
       const entities: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" };
@@ -183,7 +192,6 @@ import Layout from "../layouts/Layout.astro";
     const control = (selector: string): HTMLInputElement | HTMLSelectElement => { const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector); if (!result) throw new Error(`Missing control: ${selector}`); return result; };
     const label = (value: string) => value.replaceAll("_", " ");
     const percent = (value: number | null) => value === null ? "—" : `${value.toFixed(1)}%`;
-    const share = (part: number, whole: number) => whole ? part / whole * 100 : 0;
     const delay = (minutes: number | null) => minutes === null ? "—" : minutes < 90 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
     const askLink = (theme: string) => `${base}signals/?q=${encodeURIComponent(`How was ${label(theme)} covered on the front page and in Most Read?`)}`;
     const shareCell = (value: number | null, tone: "front" | "read") =>
@@ -213,9 +221,14 @@ import Layout from "../layouts/Layout.astro";
     }
 
     function renderThemes() {
+      const level = control("#theme-level").value === "parent" && parentThemes.length ? "parent" : "theme";
+      const sourceRows = level === "parent" ? parentThemes : themes;
+      const unitPlural = level === "parent" ? "categories" : "themes";
+      const unitSingular = level === "parent" ? "category" : "theme";
+      element("#theme-col-head").textContent = level === "parent" ? "Category" : "Theme";
       const query = control("#theme-filter").value.trim().toLowerCase();
       const sort = control("#theme-sort").value;
-      const rows = themes.filter((row) => label(row.theme).toLowerCase().includes(query));
+      const rows = sourceRows.filter((row) => label(row.theme).toLowerCase().includes(query));
       const sorters: Record<string, (left: ThemeRow, right: ThemeRow) => number> = {
         stories: (left, right) => right.stories - left.stories,
         reach: (left, right) => (left.reachRate ?? 101) - (right.reachRate ?? 101),
@@ -226,10 +239,10 @@ import Layout from "../layouts/Layout.astro";
       // A filter always shows every match; otherwise the table starts with the top rows.
       const shown = query || showAllThemes ? rows : rows.slice(0, THEME_PREVIEW);
       const order = (control("#theme-sort") as HTMLSelectElement).selectedOptions[0]?.text.toLowerCase() ?? "";
-      element("#theme-count").textContent = `${number.format(query ? rows.length : shown.length)} of ${number.format(themes.length)} themes, ${order}`;
+      element("#theme-count").textContent = `${number.format(query ? rows.length : shown.length)} of ${number.format(sourceRows.length)} ${unitPlural}, ${order}`;
       const toggle = element("#theme-toggle");
       toggle.hidden = Boolean(query) || rows.length <= THEME_PREVIEW;
-      toggle.textContent = showAllThemes ? `Show the top ${THEME_PREVIEW} themes` : `Show all ${number.format(rows.length)} themes`;
+      toggle.textContent = showAllThemes ? `Show the top ${THEME_PREVIEW} ${unitPlural}` : `Show all ${number.format(rows.length)} ${unitPlural}`;
       toggle.setAttribute("aria-expanded", String(showAllThemes));
       element("#theme-table").innerHTML = shown.map((row) => `<tr>
         <th scope="row"><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a></th>
@@ -237,7 +250,7 @@ import Layout from "../layouts/Layout.astro";
         ${shareCell(row.reachRate, "front")}
         ${shareCell(row.unpromotedShare, "read")}
         <td class="numeric">${delay(row.medianLagMinutes)}${row.promotedFirst && row.promotedFirst < 10 ? ` <span class="table-note">(${row.promotedFirst})</span>` : ""}</td>
-      </tr>`).join("") || `<tr><td colspan="5" class="empty">No theme matches “${escape(query)}”.</td></tr>`;
+      </tr>`).join("") || `<tr><td colspan="5" class="empty">No ${unitSingular} matches “${escape(query)}”.</td></tr>`;
     }
 
     function renderMonths(months: MonthRow[]) {
@@ -270,7 +283,12 @@ import Layout from "../layouts/Layout.astro";
       renderOutcomes(data);
       renderLag(data.lag);
       themes = data.themes;
-      element("#theme-intro").textContent = `Themes come from each story’s latest label (${number.format(data.labelledStories)} of ${number.format(data.totals.stories)} stories are labelled). Only themes with at least 30 compared stories are shown; a delay counted from fewer than ten stories shows that count in brackets.`;
+      parentThemes = (data.parentThemes ?? []).map((row) => ({
+        ...row,
+        theme: row.parent_theme,
+      }));
+      if (!parentThemes.length) control("#theme-level").value = "theme";
+      element("#theme-intro").textContent = `Themes come from each story’s latest label (${number.format(data.labelledStories)} of ${number.format(data.totals.stories)} stories are labelled) and roll up into 46 mid-level categories. Only categories or themes with at least 30 compared stories are shown; a delay counted from fewer than ten stories shows that count in brackets.`;
       renderThemes();
       renderMonths(data.months);
       renderExamples("#read-examples", data.examples.readOnly, "Most Read");
@@ -282,6 +300,7 @@ import Layout from "../layouts/Layout.astro";
     });
 
     element("#theme-controls").addEventListener("submit", (event) => event.preventDefault());
+    control("#theme-level").addEventListener("change", () => { showAllThemes = false; renderThemes(); });
     control("#theme-sort").addEventListener("change", renderThemes);
     control("#theme-filter").addEventListener("input", renderThemes);
     element("#theme-toggle").addEventListener("click", () => { showAllThemes = !showAllThemes; renderThemes(); });

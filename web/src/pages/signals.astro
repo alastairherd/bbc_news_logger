@@ -209,8 +209,11 @@ import Layout from "../layouts/Layout.astro";
 
       const themeCards = context.themes.map((theme) => {
         const promo = theme.promotion;
+        const promoScope = theme.promotion_inherited && theme.parent_theme
+          ? `${theme.parent_theme} category`
+          : "theme";
         const promoText = promo && promo.reach_rate !== null
-          ? `${promo.reach_rate}% of promoted stories reached Most Read (${number.format(promo.settled_stories)} settled stories${promo.median_lag_minutes !== null ? `, median lag ${promo.median_lag_minutes}m` : ""})`
+          ? `${promo.reach_rate}% of promoted stories reached Most Read (${number.format(promo.settled_stories)} settled ${promoScope} stories${promo.median_lag_minutes !== null ? `, median lag ${promo.median_lag_minutes}m` : ""})`
           : `${number.format(theme.front_page_stories)} Front page · ${number.format(theme.most_read_stories)} Most Read`;
         const parentBadge = theme.parent_theme && theme.parent_theme.toLowerCase() !== theme.name.toLowerCase()
           ? `<p class="story-meta"><span>Category: ${escape(theme.parent_theme)}</span></p>`
