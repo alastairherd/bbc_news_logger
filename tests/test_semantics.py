@@ -105,9 +105,7 @@ def test_sqlite_checkpoint_survives_reopen(tmp_path) -> None:
     restored.close()
 
 
-def test_publish_shard_waits_for_hugging_face_commit_rate_limit(
-    monkeypatch, capsys
-) -> None:
+def test_publish_shard_waits_for_hugging_face_commit_rate_limit(monkeypatch, capsys) -> None:
     start = datetime(2026, 7, 1, tzinfo=timezone.utc)
     table = pa.Table.from_pylist([_signal("hash-a", "Talks", "State", start)], SIGNAL_SCHEMA)
     request = Request("POST", "https://huggingface.co/api/datasets/example/commit/main")
@@ -158,9 +156,7 @@ def test_take_ready_shard_buffers_rows_until_target_size() -> None:
     assert rows == []
 
 
-def test_embedding_refresh_normalizes_and_reports_checkpoint(
-    monkeypatch, tmp_path, capsys
-) -> None:
+def test_embedding_refresh_normalizes_and_reports_checkpoint(monkeypatch, tmp_path, capsys) -> None:
     start = datetime(2026, 7, 1, tzinfo=timezone.utc)
     article_table = pa.Table.from_pylist(
         [_article("hash-a", "Talks begin", start)], schema=ARTICLE_SCHEMA

@@ -26,6 +26,11 @@ from .ontology import (
     normalize_themes,
     reconcile_signal_rows,
 )
+from .taxonomy_wikidata import (
+    CURATED_ENTITY_QIDS,
+    PARENT_THEME_DOMAIN,
+    heuristic_parent_theme,
+)
 
 SEMANTIC_PREFIXES = (
     "data/observations",
@@ -34,6 +39,8 @@ SEMANTIC_PREFIXES = (
     "semantic/embeddings",
     "semantic/events",
     "semantic/weekly",
+    "semantic/taxonomy",
+    "semantic/wikidata",
 )
 
 
@@ -139,16 +146,12 @@ def _records(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, object]]:
     return rows
 
 
-def _latest_rows(
-    table: pa.Table | None, timestamp_field: str
-) -> dict[str, dict[str, object]]:
+def _latest_rows(table: pa.Table | None, timestamp_field: str) -> dict[str, dict[str, object]]:
     rows: dict[str, dict[str, object]] = {}
     for row in table.to_pylist() if table is not None else []:
         content_hash = str(row.get("content_sha256") or "")
         existing = rows.get(content_hash)
-        if content_hash and (
-            existing is None or row[timestamp_field] > existing[timestamp_field]
-        ):
+        if content_hash and (existing is None or row[timestamp_field] > existing[timestamp_field]):
             rows[content_hash] = row
     return rows
 
@@ -261,9 +264,7 @@ def _semantic_findings(
 
     def period(start: object, end: object) -> tuple[Counter[str], int]:
         rows = [
-            signal
-            for article, signal in covered
-            if start <= article["fetched_at"].date() <= end
+            signal for article, signal in covered if start <= article["fetched_at"].date() <= end
         ]
         return Counter(str(theme) for row in rows for theme in row.get("themes") or []), len(rows)
 
@@ -390,9 +391,7 @@ def _labelled_articles(
     for row in signals.to_pylist() if signals is not None else []:
         content_hash = str(row.get("content_sha256") or "")
         existing = raw_signal_by_hash.get(content_hash)
-        if content_hash and (
-            existing is None or row["generated_at"] > existing["generated_at"]
-        ):
+        if content_hash and (existing is None or row["generated_at"] > existing["generated_at"]):
             updated = dict(row)
             # Older labels predate the story-form vocabulary check, so they are normalized on read.
             updated["story_form"] = normalize_story_form(row.get("story_form"))
@@ -424,6 +423,52 @@ ONTOLOGY_MIN_STORIES = 5
 ONTOLOGY_MAX_ENTITIES = 400
 
 
+def _taxonomy_lookup(taxonomy: pa.Table | None) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    if taxonomy is None or taxonomy.num_rows == 0:
+        return lookup
+    rows = sorted(taxonomy.to_pylist(), key=lambda row: row["generated_at"])
+    for row in rows:
+        theme = str(row.get("theme") or "").strip()
+        parent = str(row.get("parent_theme") or "").strip()
+        if theme and parent in PARENT_THEME_DOMAIN:
+            lookup[theme.casefold()] = parent
+    return lookup
+
+
+def _wikidata_lookup(wikidata: pa.Table | None) -> dict[str, dict[str, str]]:
+    lookup: dict[str, dict[str, str]] = {
+        key: {
+            "qid": meta["qid"],
+            "label": meta["label"],
+            "description": meta["description"],
+            "entity_type": meta["entity_type"],
+            "wikidata_url": f"https://www.wikidata.org/wiki/{meta['qid']}",
+        }
+        for key, meta in CURATED_ENTITY_QIDS.items()
+    }
+    if wikidata is None or wikidata.num_rows == 0:
+        return lookup
+    rows = sorted(wikidata.to_pylist(), key=lambda row: row["generated_at"])
+    for row in rows:
+        entity = str(row.get("entity") or "").strip()
+        if not entity:
+            continue
+        key = entity.casefold()
+        if key in CURATED_ENTITY_QIDS:
+            continue
+        qid = str(row.get("qid") or "").strip()
+        lookup[key] = {
+            "qid": qid,
+            "label": str(row.get("label") or "").strip(),
+            "description": str(row.get("description") or "").strip(),
+            "entity_type": str(row.get("entity_type") or "other").strip() or "other",
+            "wikidata_url": str(row.get("wikidata_url") or "").strip()
+            or (f"https://www.wikidata.org/wiki/{qid}" if qid else ""),
+        }
+    return lookup
+
+
 def _semantic_ontology(
     *,
     article_by_hash: dict[str, dict[str, object]],
@@ -431,8 +476,11 @@ def _semantic_ontology(
     story_stats: dict[str, dict[str, object]],
     recurring: list[dict[str, object]],
     promotion_themes: list[dict[str, object]],
+    promotion_parent_themes: list[dict[str, object]] | None = None,
     theme_aliases: dict[str, list[str]],
     entity_aliases: dict[str, list[str]],
+    taxonomy_by_theme: dict[str, str] | None = None,
+    wikidata_by_entity: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, object]:
     """Build the governed semantic ontology catalog of canonical themes, entities, and events."""
 
@@ -447,6 +495,7 @@ def _semantic_ontology(
     theme_stories: defaultdict[str, set[str]] = defaultdict(set)
     theme_front: defaultdict[str, int] = defaultdict(int)
     theme_read: defaultdict[str, int] = defaultdict(int)
+    theme_topics: defaultdict[str, Counter[str]] = defaultdict(Counter)
 
     entity_stories: defaultdict[str, set[str]] = defaultdict(set)
     entity_front: defaultdict[str, int] = defaultdict(int)
@@ -457,11 +506,13 @@ def _semantic_ontology(
         surfaces = set(story_stats.get(story_id, {}).get("surfaces") or [])
         on_front = "front_page" in surfaces
         on_read = "most_read" in surfaces
+        topic = str(signal.get("topic") or "other")
         themes = [str(theme) for theme in signal.get("themes") or [] if str(theme)]
         entities = [str(entity) for entity in signal.get("named_entities") or [] if str(entity)]
 
         for theme in set(themes):
             theme_stories[theme].add(story_id)
+            theme_topics[theme][topic] += 1
             if on_front:
                 theme_front[theme] += 1
             if on_read:
@@ -477,14 +528,33 @@ def _semantic_ontology(
                 entity_themes[entity][theme] += 1
 
     promo_by_theme = {str(row["theme"]).casefold(): row for row in promotion_themes}
+    promo_by_parent = {
+        str(row["parent_theme"]).casefold(): row for row in (promotion_parent_themes or [])
+    }
+    tax_lookup = taxonomy_by_theme or {}
+    wd_lookup = wikidata_by_entity or _wikidata_lookup(None)
+
+    parent_stories: defaultdict[str, set[str]] = defaultdict(set)
+    parent_front: defaultdict[str, set[str]] = defaultdict(set)
+    parent_read: defaultdict[str, set[str]] = defaultdict(set)
+    parent_children: defaultdict[str, list[tuple[str, int]]] = defaultdict(list)
 
     themes_out: list[dict[str, object]] = []
-    sorted_themes = sorted(
-        theme_stories.items(), key=lambda item: (-len(item[1]), item[0])
-    )
+    sorted_themes = sorted(theme_stories.items(), key=lambda item: (-len(item[1]), item[0]))
     for name, story_ids in sorted_themes:
+        top_topic = theme_topics[name].most_common(1)[0][0] if theme_topics[name] else "other"
+        parent_theme = tax_lookup.get(name.casefold()) or heuristic_parent_theme(name, top_topic)
+        parent_stories[parent_theme].update(story_ids)
+        for s_id in story_ids:
+            surfaces = set(story_stats.get(s_id, {}).get("surfaces") or [])
+            if "front_page" in surfaces:
+                parent_front[parent_theme].add(s_id)
+            if "most_read" in surfaces:
+                parent_read[parent_theme].add(s_id)
+
         if len(story_ids) < ONTOLOGY_MIN_STORIES:
             continue
+        parent_children[parent_theme].append((name, len(story_ids)))
         promo = promo_by_theme.get(name.casefold())
         promotion_payload = (
             {
@@ -502,6 +572,7 @@ def _semantic_ontology(
         themes_out.append(
             {
                 "name": name,
+                "parent_theme": parent_theme,
                 "aliases": theme_aliases.get(name, []),
                 "stories": len(story_ids),
                 "front_page_stories": theme_front[name],
@@ -510,25 +581,67 @@ def _semantic_ontology(
             }
         )
 
+    parent_themes_out: list[dict[str, object]] = []
+    for parent_name, story_ids in sorted(
+        parent_stories.items(), key=lambda item: (-len(item[1]), item[0])
+    ):
+        if len(story_ids) < ONTOLOGY_MIN_STORIES:
+            continue
+        promo = promo_by_parent.get(parent_name.casefold())
+        promotion_payload = (
+            {
+                "settled_stories": int(promo["stories"]),
+                "promoted_only": int(promo["promotedOnly"]),
+                "read_only": int(promo["readOnly"]),
+                "both": int(promo["both"]),
+                "reach_rate": promo["reachRate"],
+                "unpromoted_share": promo["unpromotedShare"],
+                "median_lag_minutes": promo["medianLagMinutes"],
+            }
+            if promo is not None
+            else None
+        )
+        children = [
+            child
+            for child, _ in sorted(
+                parent_children[parent_name], key=lambda item: (-item[1], item[0])
+            )[:8]
+        ]
+        parent_themes_out.append(
+            {
+                "name": parent_name,
+                "domain": PARENT_THEME_DOMAIN.get(parent_name, "other"),
+                "stories": len(story_ids),
+                "front_page_stories": len(parent_front[parent_name]),
+                "most_read_stories": len(parent_read[parent_name]),
+                "child_themes": children,
+                "promotion": promotion_payload,
+            }
+        )
+
     entities_out: list[dict[str, object]] = []
-    sorted_entities = sorted(
-        entity_stories.items(), key=lambda item: (-len(item[1]), item[0])
-    )
+    sorted_entities = sorted(entity_stories.items(), key=lambda item: (-len(item[1]), item[0]))
     for name, story_ids in sorted_entities:
         if len(story_ids) < ONTOLOGY_MIN_STORIES:
             continue
-        entities_out.append(
-            {
-                "name": name,
-                "aliases": entity_aliases.get(name, []),
-                "stories": len(story_ids),
-                "front_page_stories": entity_front[name],
-                "most_read_stories": entity_read[name],
-                "top_themes": [
-                    theme for theme, _ in entity_themes[name].most_common(4)
-                ],
-            }
-        )
+        wd = wd_lookup.get(name.casefold(), {})
+        qid = wd.get("qid") or None
+        entity_entry: dict[str, object] = {
+            "name": name,
+            "aliases": entity_aliases.get(name, []),
+            "stories": len(story_ids),
+            "front_page_stories": entity_front[name],
+            "most_read_stories": entity_read[name],
+            "top_themes": [theme for theme, _ in entity_themes[name].most_common(4)],
+        }
+        if qid:
+            entity_entry["qid"] = qid
+            entity_entry["entity_type"] = wd.get("entity_type") or "other"
+            if wd.get("description"):
+                entity_entry["description"] = wd["description"]
+            if wd.get("wikidata_url"):
+                entity_entry["wikidata_url"] = wd["wikidata_url"]
+        entities_out.append(entity_entry)
         if len(entities_out) >= ONTOLOGY_MAX_ENTITIES:
             break
 
@@ -546,7 +659,7 @@ def _semantic_ontology(
     ]
 
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "ontologyVersion": ONTOLOGY_VERSION,
         "contracts": {
             "story_grain": (
@@ -562,7 +675,16 @@ def _semantic_ontology(
                 f"{PROMOTION_SETTLE_HOURS}-hour settle window and require at least "
                 f"{PROMOTION_THEME_MINIMUM} settled stories per theme."
             ),
+            "taxonomy_contract": (
+                "Canonical themes map many-to-one onto a controlled 46-node mid-level "
+                "parent_theme hierarchy."
+            ),
+            "wikidata_contract": (
+                "Canonical entities link to Wikidata Q-IDs, entity types, and descriptions "
+                "where unambiguously resolved."
+            ),
         },
+        "parent_themes": parent_themes_out,
         "themes": themes_out,
         "entities": entities_out,
         "events": events_out,
@@ -577,8 +699,11 @@ def _semantic_payloads(
     events: pa.Table | None,
     stories: list[dict[str, object]],
     promotion_themes: list[dict[str, object]] | None = None,
+    promotion_parent_themes: list[dict[str, object]] | None = None,
     theme_aliases: dict[str, list[str]] | None = None,
     entity_aliases: dict[str, list[str]] | None = None,
+    taxonomy: pa.Table | None = None,
+    wikidata: pa.Table | None = None,
 ) -> tuple[dict[str, object], bytes, dict[str, object]]:
     counts: Counter[tuple[str, str, str]] = Counter()
     for content_hash, signal in signal_by_hash.items():
@@ -626,16 +751,14 @@ def _semantic_payloads(
                     }
                 )
             theme_counts = Counter(
-                theme
-                for row in rows
-                for theme in normalize_themes(row.get("themes") or [])
+                theme for row in rows for theme in normalize_themes(row.get("themes") or [])
             )
             recurring.append(
                 {
                     "cluster_id": cluster_id,
-                    "label": Counter(
-                        str(row["cluster_label"]) for row in rows
-                    ).most_common(1)[0][0],
+                    "label": Counter(str(row["cluster_label"]) for row in rows).most_common(1)[0][
+                        0
+                    ],
                     "event_type": Counter(
                         normalize_event_type(row.get("event_type")) for row in rows
                     ).most_common(1)[0][0],
@@ -677,12 +800,16 @@ def _semantic_payloads(
         story_stats=story_stats,
         recurring=recurring,
         promotion_themes=promotion_themes or [],
+        promotion_parent_themes=promotion_parent_themes or [],
         theme_aliases=theme_aliases or {},
         entity_aliases=entity_aliases or {},
+        taxonomy_by_theme=_taxonomy_lookup(taxonomy),
+        wikidata_by_entity=_wikidata_lookup(wikidata),
     )
     article_count = len(article_by_hash)
     signal_count = len(article_by_hash.keys() & signal_by_hash.keys())
     coverage = round(signal_count / article_count * 100, 1) if article_count else 0.0
+    wikidata_linked_count = sum(1 for item in ontology["entities"] if item.get("qid"))
     return (
         {
             "semantic-trends.json": trends,
@@ -700,8 +827,10 @@ def _semantic_payloads(
             "searchDocumentCount": documents["documentCount"],
             "embeddingModel": documents["model"],
             "ontologyVersion": ONTOLOGY_VERSION,
+            "ontologyParentThemeCount": len(ontology["parent_themes"]),
             "ontologyThemeCount": len(ontology["themes"]),
             "ontologyEntityCount": len(ontology["entities"]),
+            "ontologyWikidataLinkedCount": wikidata_linked_count,
         },
     )
 
@@ -741,7 +870,9 @@ def _outcome_counts(rows: list[dict[str, object]]) -> dict[str, object]:
 
 
 def _promotion_attention(
-    con: duckdb.DuckDBPyConnection, story_themes: dict[str, list[str]]
+    con: duckdb.DuckDBPyConnection,
+    story_themes: dict[str, list[str]],
+    taxonomy_by_theme: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Compare front-page promotion with Most Read attention, story by story."""
 
@@ -826,10 +957,18 @@ def _promotion_attention(
             {"bucket": key, "label": label, "count": count, "share": _share(count, len(both))}
         )
 
+    tax_lookup = taxonomy_by_theme or {}
     by_theme: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
+    by_parent: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
     for row in rows:
-        for theme in set(story_themes.get(str(row["story_id"]), ())):
+        s_themes = set(story_themes.get(str(row["story_id"]), ()))
+        s_parents: set[str] = set()
+        for theme in s_themes:
             by_theme[theme].append(row)
+            parent = tax_lookup.get(theme.casefold()) or heuristic_parent_theme(theme)
+            s_parents.add(parent)
+        for parent in s_parents:
+            by_parent[parent].append(row)
     themes = []
     for theme, theme_rows in by_theme.items():
         if len(theme_rows) < PROMOTION_THEME_MINIMUM:
@@ -848,6 +987,25 @@ def _promotion_attention(
             }
         )
     themes.sort(key=lambda row: (-int(row["stories"]), str(row["theme"])))
+
+    parent_themes = []
+    for parent, parent_rows in by_parent.items():
+        if len(parent_rows) < PROMOTION_THEME_MINIMUM:
+            continue
+        promoted_first = [
+            int(row["lag_minutes"])
+            for row in parent_rows
+            if row["outcome"] == "both" and int(row["lag_minutes"]) > 0
+        ]
+        parent_themes.append(
+            {
+                "parent_theme": parent,
+                **_outcome_counts(parent_rows),
+                "promotedFirst": len(promoted_first),
+                "medianLagMinutes": statistics.median(promoted_first) if promoted_first else None,
+            }
+        )
+    parent_themes.sort(key=lambda row: (-int(row["stories"]), str(row["parent_theme"])))
 
     by_month: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
     for row in rows:
@@ -893,6 +1051,7 @@ def _promotion_attention(
         "labelledStories": sum(1 for row in rows if str(row["story_id"]) in story_themes),
         "lag": lag,
         "themes": themes,
+        "parentThemes": parent_themes,
         "months": months,
         "examples": {
             "readOnly": strongest("read_only", "most_read"),
@@ -910,6 +1069,8 @@ def build_marts(
     embeddings: pa.Table | None = None,
     events: pa.Table | None = None,
     weekly: pa.Table | None = None,
+    taxonomy: pa.Table | None = None,
+    wikidata: pa.Table | None = None,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect()
@@ -1002,8 +1163,9 @@ def build_marts(
     article_by_hash, signal_by_hash, theme_aliases, entity_aliases = _labelled_articles(
         articles, signals
     )
+    tax_lookup = _taxonomy_lookup(taxonomy)
     promotion_attention = _promotion_attention(
-        con, _story_themes(article_by_hash, signal_by_hash)
+        con, _story_themes(article_by_hash, signal_by_hash), tax_lookup
     )
     semantic_payloads, semantic_vectors, semantic_manifest = _semantic_payloads(
         article_by_hash=article_by_hash,
@@ -1012,8 +1174,11 @@ def build_marts(
         events=events,
         stories=stories,
         promotion_themes=list(promotion_attention.get("themes") or []),  # type: ignore[arg-type]
+        promotion_parent_themes=list(promotion_attention.get("parentThemes") or []),  # type: ignore[arg-type]
         theme_aliases=theme_aliases,
         entity_aliases=entity_aliases,
+        taxonomy=taxonomy,
+        wikidata=wikidata,
     )
     payloads = {
         "stories.json": stories,
@@ -1064,4 +1229,6 @@ def build_remote_marts(output_dir: Path, dataset_id: str = DEFAULT_DATASET_ID) -
             embeddings=tables["semantic/embeddings"],
             events=tables["semantic/events"],
             weekly=tables["semantic/weekly"],
+            taxonomy=tables.get("semantic/taxonomy"),
+            wikidata=tables.get("semantic/wikidata"),
         )

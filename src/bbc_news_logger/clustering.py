@@ -78,9 +78,7 @@ def _event_match(
     label_overlap = _label_overlap(
         str(current.get("event_label") or ""), str(anchor.get("event_label") or "")
     )
-    return (
-        similarity >= strong_similarity and (entity_overlap or label_overlap >= 0.25)
-    ) or (
+    return (similarity >= strong_similarity and (entity_overlap or label_overlap >= 0.25)) or (
         similarity >= supported_similarity and entity_overlap and label_overlap >= 0.35
     )
 

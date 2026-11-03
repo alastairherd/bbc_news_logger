@@ -84,6 +84,13 @@ jobs:
           if ! uv run --no-sync python -m bbc_news_logger.jobs.cluster --publish; then
             echo "::notice::Clusters remain unchanged until both signals and embeddings are available."
           fi
+      - name: Refresh theme taxonomy and Wikidata entity links
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          if ! uv run --no-sync python -m bbc_news_logger.jobs.ontology --publish $ALLOW_PEAK; then
+            echo "::notice::Ontology taxonomy and Wikidata tables remain unchanged."
+          fi
       - name: Retain run manifests and local paid-call checkpoint
         if: always()
         uses: actions/upload-artifact@v6

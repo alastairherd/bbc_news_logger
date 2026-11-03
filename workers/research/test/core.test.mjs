@@ -208,6 +208,7 @@ test("normalization bounds ontology records and validates ontology citations", (
       themes: [
         {
           name: "UK politics",
+          parent_theme: "UK government & Westminster",
           stories: 420,
           front_page_stories: 310,
           most_read_stories: 240,
@@ -225,6 +226,9 @@ test("normalization bounds ontology records and validates ontology citations", (
       entities: [
         {
           name: "Keir Starmer",
+          qid: "Q1737906",
+          entity_type: "person",
+          description: "Prime Minister of the United Kingdom since 2024",
           stories: 290,
           front_page_stories: 220,
           most_read_stories: 170,
@@ -253,7 +257,14 @@ test("normalization bounds ontology records and validates ontology citations", (
   assert.equal(normalized.evidence[0].best_most_read, 3);
   assert.equal(normalized.evidence[0].event_cluster, "Autumn Budget");
   assert.equal(normalized.ontology.themes[0].id, "T1");
+  assert.equal(normalized.ontology.themes[0].parent_theme, "UK government & Westminster");
   assert.equal(normalized.ontology.entities[0].id, "E1");
+  assert.equal(normalized.ontology.entities[0].qid, "Q1737906");
+  assert.equal(normalized.ontology.entities[0].entity_type, "person");
+  assert.equal(
+    normalized.ontology.entities[0].description,
+    "Prime Minister of the United Kingdom since 2024",
+  );
   assert.equal(normalized.ontology.events[0].id, "R1");
 
   const completion = {

@@ -110,3 +110,38 @@ def test_reconcile_signal_rows_is_deterministic_and_non_mutating() -> None:
     assert reconciled["h1"]["event_type"] == "policy_change"
     assert "british politics" in theme_aliases["UK politics"]
     assert "Sir Keir Starmer" in entity_aliases["Keir Starmer"]
+
+
+def test_taxonomy_and_wikidata_helpers() -> None:
+    from bbc_news_logger.taxonomy_wikidata import (
+        ALLOWED_PARENT_THEMES,
+        heuristic_parent_theme,
+        infer_entity_type_from_description,
+        resolve_entity_wikidata,
+    )
+
+    assert heuristic_parent_theme("Gaza ceasefire", "world") == "Middle East conflict"
+    assert heuristic_parent_theme("Ukraine war", "world") == "Russia-Ukraine war"
+    assert heuristic_parent_theme("NHS waiting times", "health") == "NHS & healthcare services"
+    assert heuristic_parent_theme("Premier League", "sport") == "Football"
+    assert heuristic_parent_theme("artificial intelligence", "technology") == (
+        "Artificial intelligence & computing"
+    )
+    assert heuristic_parent_theme("unknown niche topic", "politics") in ALLOWED_PARENT_THEMES
+
+    assert infer_entity_type_from_description("Prime Minister of the United Kingdom") == "person"
+    assert infer_entity_type_from_description("country in North-West Europe") == "location"
+    assert infer_entity_type_from_description("British public service broadcaster") == (
+        "organisation"
+    )
+    assert infer_entity_type_from_description("Grand Slam tennis tournament") == "event"
+
+    # Curated entities resolve without hitting the network.
+    uk = resolve_entity_wikidata("UK")
+    assert uk["qid"] == "Q145"
+    assert uk["entity_type"] == "location"
+    assert uk["wikidata_url"] == "https://www.wikidata.org/wiki/Q145"
+
+    nhs = resolve_entity_wikidata("NHS")
+    assert nhs["qid"] == "Q918396"
+    assert nhs["entity_type"] == "organisation"

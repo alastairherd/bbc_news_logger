@@ -211,10 +211,7 @@ def shard_path(prefix: str, rows: Sequence[dict[str, Any]]) -> str:
         generated = datetime.now(timezone.utc)
     generated = generated.astimezone(timezone.utc)
     stamp = generated.strftime("%Y-%m-%dT%H%M%S%fZ")
-    return (
-        f"{prefix}/year={generated:%Y}/month={generated:%m}/"
-        f"{stamp}-{digest}.parquet"
-    )
+    return f"{prefix}/year={generated:%Y}/month={generated:%m}/{stamp}-{digest}.parquet"
 
 
 def publish_shard(
@@ -446,14 +443,16 @@ def run_embedding_refresh(
             norm = math.sqrt(sum(value * value for value in values))
             if norm == 0:
                 raise RuntimeError("BGE returned a zero vector")
-            rows.append({
-                "content_sha256": row["content_sha256"],
-                "model": EMBEDDING_MODEL,
-                "model_revision": EMBEDDING_MODEL_REVISION,
-                "input_version": EMBEDDING_INPUT_VERSION,
-                "embedding": [value / norm for value in values],
-                "generated_at": generated_at,
-            })
+            rows.append(
+                {
+                    "content_sha256": row["content_sha256"],
+                    "model": EMBEDDING_MODEL,
+                    "model_revision": EMBEDDING_MODEL_REVISION,
+                    "input_version": EMBEDDING_INPUT_VERSION,
+                    "embedding": [value / norm for value in values],
+                    "generated_at": generated_at,
+                }
+            )
         table = pa.Table.from_pylist(rows, schema=EMBEDDING_SCHEMA)
         local_path = output_dir / Path(shard_path(EMBEDDING_PREFIX, rows)).name
         write_parquet(table, local_path)

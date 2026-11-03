@@ -118,11 +118,12 @@ examples:
 - Ask the archive could originally see only the twenty articles returned by vector search, so broad
   questions about how often a topic reached Most Read or how long coverage ran could only be
   answered from that sample. Adapting the reconciliation and semantic-layer ideas from NVIDIA's
-  Auto Ontology, the build now normalises free-form themes and named entities on read (merging
+  Auto Ontology, the pipeline now normalises free-form themes and named entities on read (merging
   variants such as “The NHS” and “NHS”, or “Sir Keir Starmer” and “Keir Starmer”, without
-  rewriting the stored labels) and writes a static ontology mart with archive-wide story counts,
-  promotion reach rates and recurring-event spans. The browser worker matches those concepts
-  alongside the vector search so answers can cite both specific articles (`[1]`–`[20]`) and
+  rewriting the stored labels), maps canonical themes onto a 46-category mid-level hierarchy, links
+  recurring named entities to Wikidata Q-IDs, and writes a static ontology mart with archive-wide
+  story counts, promotion reach rates and recurring-event spans. The browser worker matches those
+  concepts alongside the vector search so answers can cite both specific articles (`[1]`–`[20]`) and
   archive-level statistics (`[T1]`, `[E1]`, `[R1]`).
 - Nothing on the site showed the six-week outage, or that GitHub had been running the hourly job
   only every few hours. A Cloudflare cron now starts collection, and a GitHub issue is opened if no
@@ -163,6 +164,8 @@ contract, migration repairs and clustering rules.
 | `story_signals` | labelled article version |
 | `article_embeddings` | embedded article version |
 | `recurring_events` | article in a recurring-story cluster |
+| `theme_taxonomy` | canonical theme mapped to its mid-level parent category |
+| `entity_wikidata` | recurring named entity linked to Wikidata (`qid`, type, description) |
 
 Article HTML is in a separate
 [raw dataset](https://huggingface.co/datasets/AlastairH/bbc-news-logger-raw) so ordinary analysis

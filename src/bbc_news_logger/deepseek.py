@@ -235,11 +235,10 @@ def recorded_scope_spend(rows: Sequence[dict[str, Any]], scope: str) -> Decimal:
         total += Decimal(str(row.get("request_cost_usd") or 0))
     return total
 
+
 def is_peak_pricing(moment: datetime) -> bool:
     moment = moment.astimezone(timezone.utc)
-    return moment.weekday() < 5 and any(
-        start <= moment.hour < end for start, end in PEAK_HOURS_UTC
-    )
+    return moment.weekday() < 5 and any(start <= moment.hour < end for start, end in PEAK_HOURS_UTC)
 
 
 def token_cost_usd(
@@ -397,14 +396,10 @@ def parse_signal_batch(
 def parse_usage(value: dict[str, Any], *, peak: bool = True) -> TokenUsage:
     prompt_tokens = int(value.get("prompt_tokens", 0))
     details = value.get("prompt_tokens_details") or {}
-    cache_hit = int(
-        value.get("prompt_cache_hit_tokens", details.get("cached_tokens", 0)) or 0
-    )
+    cache_hit = int(value.get("prompt_cache_hit_tokens", details.get("cached_tokens", 0)) or 0)
     cache_miss_value = value.get("prompt_cache_miss_tokens")
     cache_miss = (
-        int(cache_miss_value)
-        if cache_miss_value is not None
-        else max(0, prompt_tokens - cache_hit)
+        int(cache_miss_value) if cache_miss_value is not None else max(0, prompt_tokens - cache_hit)
     )
     return TokenUsage(
         prompt_tokens=prompt_tokens,
@@ -504,8 +499,7 @@ class DeepSeekClient:
         user_content = json.dumps(
             {
                 "articles": [
-                    {"id": article_id, "text": truncate_utf8(text)}
-                    for article_id, text in articles
+                    {"id": article_id, "text": truncate_utf8(text)} for article_id, text in articles
                 ]
             },
             ensure_ascii=False,

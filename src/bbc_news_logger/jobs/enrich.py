@@ -85,9 +85,7 @@ def _publish_ready_rows(
     rows_added: int,
     force: bool,
 ) -> None:
-    while shard_rows := take_ready_shard(
-        rows, shard_size=REMOTE_SIGNAL_SHARD_ROWS, force=force
-    ):
+    while shard_rows := take_ready_shard(rows, shard_size=REMOTE_SIGNAL_SHARD_ROWS, force=force):
         table = pa.Table.from_pylist(shard_rows, schema=SIGNAL_SCHEMA)
         remote_path = publish_shard(
             table,
@@ -147,9 +145,7 @@ def enrich(
         remote_spend = _scope_spend(signal_table, scope)
         local_spend = recorded_scope_spend(local_rows, scope)
         prior_spend = remote_spend + local_spend
-        scope_cap = (
-            MAX_BACKFILL_BUDGET_USD if scope == "backfill" else MAX_MONTHLY_BUDGET_USD
-        )
+        scope_cap = MAX_BACKFILL_BUDGET_USD if scope == "backfill" else MAX_MONTHLY_BUDGET_USD
         scope_remaining = max(Decimal("0"), scope_cap - prior_spend)
         process_cap = min(maximum_cost_usd, scope_remaining)
         published_from_checkpoint = 0

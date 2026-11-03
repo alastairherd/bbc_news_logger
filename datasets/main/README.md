@@ -22,6 +22,10 @@ configs:
     data_files: semantic/embeddings/**/*.parquet
   - config_name: recurring_events
     data_files: semantic/events/**/*.parquet
+  - config_name: theme_taxonomy
+    data_files: semantic/taxonomy/**/*.parquet
+  - config_name: entity_wikidata
+    data_files: semantic/wikidata/**/*.parquet
 ---
 
 # BBC News Surface Observations
@@ -46,6 +50,10 @@ audit, and journalistic analysis; users are responsible for ensuring their use i
 - `article_embeddings`: normalized 384-dimensional BGE Small vectors, also keyed by content hash.
 - `recurring_events`: reproducible recurring-story cluster membership derived from vectors and
   structured event evidence.
+- `theme_taxonomy`: controlled mid-level `parent_theme` hierarchy mappings for canonical themes
+  appearing in five or more stories.
+- `entity_wikidata`: Wikidata Q-IDs, labels, entity types, and descriptions for recurring canonical
+  named entities.
 
 All timestamps are UTC. Files use Zstandard-compressed Parquet partitioned by year, month, and UTC
 date. Schema version metadata is embedded in every file. Historical article `fetched_at` values are

@@ -35,10 +35,21 @@ export interface OntologyPromotionStats {
 
 export interface OntologyTheme {
   name: string;
+  parent_theme?: string;
   aliases: string[];
   stories: number;
   front_page_stories: number;
   most_read_stories: number;
+  promotion: OntologyPromotionStats | null;
+}
+
+export interface OntologyParentTheme {
+  name: string;
+  domain: string;
+  stories: number;
+  front_page_stories: number;
+  most_read_stories: number;
+  child_themes: string[];
   promotion: OntologyPromotionStats | null;
 }
 
@@ -49,6 +60,10 @@ export interface OntologyEntity {
   front_page_stories: number;
   most_read_stories: number;
   top_themes: string[];
+  qid?: string;
+  entity_type?: string;
+  description?: string;
+  wikidata_url?: string;
 }
 
 export interface OntologyEvent {
@@ -65,6 +80,7 @@ export interface SemanticOntology {
   schemaVersion: number;
   ontologyVersion: string;
   contracts?: Record<string, string>;
+  parent_themes?: OntologyParentTheme[];
   themes: OntologyTheme[];
   entities: OntologyEntity[];
   events: OntologyEvent[];
@@ -110,6 +126,7 @@ export interface SearchResultItem {
 export interface OntologyLookup {
   ontology: SemanticOntology;
   themeByAlias: Map<string, OntologyTheme>;
+  parentByName: Map<string, OntologyParentTheme>;
   entityByAlias: Map<string, OntologyEntity>;
   eventById: Map<string, OntologyEvent>;
 }
@@ -248,24 +265,52 @@ function tokenizeWords(value: string): string[] {
 
 export function buildOntologyLookup(ontology: SemanticOntology | null | undefined): OntologyLookup {
   const safe: SemanticOntology = ontology ?? {
-    schemaVersion: 1,
+    schemaVersion: 2,
     ontologyVersion: "none",
+    parent_themes: [],
     themes: [],
     entities: [],
     events: [],
   };
   const themeByAlias = new Map<string, OntologyTheme>();
+  const parentByName = new Map<string, OntologyParentTheme>();
   const entityByAlias = new Map<string, OntologyEntity>();
   const eventById = new Map<string, OntologyEvent>();
 
+  for (const parent of safe.parent_themes ?? []) {
+    parentByName.set(parent.name.toLowerCase(), parent);
+    const parentAsTheme: OntologyTheme = {
+      name: parent.name,
+      parent_theme: parent.name,
+      aliases: parent.child_themes ?? [],
+      stories: parent.stories,
+      front_page_stories: parent.front_page_stories,
+      most_read_stories: parent.most_read_stories,
+      promotion: parent.promotion,
+    };
+    const key = normalizePhrase(parent.name);
+    if (key) {
+      themeByAlias.set(key, parentAsTheme);
+    }
+  }
+
   for (const theme of safe.themes) {
+    // If a child theme lacks its own 30-story settled promotion stats, inherit its parent_theme
+    // promotion stats when available so the researcher still gets mid-level promotion context.
+    const parentRecord = theme.parent_theme
+      ? parentByName.get(theme.parent_theme.toLowerCase())
+      : undefined;
+    const enrichedTheme: OntologyTheme =
+      theme.promotion === null && parentRecord?.promotion
+        ? { ...theme, promotion: parentRecord.promotion }
+        : theme;
     const candidates = [theme.name, ...(theme.aliases ?? [])];
     for (const candidate of candidates) {
       const key = normalizePhrase(candidate);
       if (!key) continue;
       const existing = themeByAlias.get(key);
-      if (!existing || theme.stories > existing.stories) {
-        themeByAlias.set(key, theme);
+      if (!existing || enrichedTheme.stories > existing.stories) {
+        themeByAlias.set(key, enrichedTheme);
       }
     }
   }
@@ -286,7 +331,7 @@ export function buildOntologyLookup(ontology: SemanticOntology | null | undefine
     eventById.set(event.cluster_id, event);
   }
 
-  return { ontology: safe, themeByAlias, entityByAlias, eventById };
+  return { ontology: safe, themeByAlias, parentByName, entityByAlias, eventById };
 }
 
 export function extractQueryDates(query: string): { years: Set<string>; yearMonths: Set<string> } {

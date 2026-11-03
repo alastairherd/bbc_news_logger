@@ -103,6 +103,7 @@ function normalizeOntology(raw) {
     const stories = boundedInt(item?.stories, 1, 100_000);
     if (!name || stories === null) continue;
     const id = `T${themes.length + 1}`;
+    const parentTheme = compact(item?.parent_theme, 80);
     let promotion = null;
     if (item?.promotion && typeof item.promotion === "object") {
       const settled = boundedInt(item.promotion.settled_stories, 0, 100_000);
@@ -118,14 +119,16 @@ function normalizeOntology(raw) {
         };
       }
     }
-    themes.push({
+    const themeRecord = {
       id,
       name,
       stories,
       front_page_stories: boundedInt(item?.front_page_stories, 0, 100_000) ?? 0,
       most_read_stories: boundedInt(item?.most_read_stories, 0, 100_000) ?? 0,
       promotion,
-    });
+    };
+    if (parentTheme) themeRecord.parent_theme = parentTheme;
+    themes.push(themeRecord);
   }
 
   const entities = [];
@@ -134,7 +137,7 @@ function normalizeOntology(raw) {
     const stories = boundedInt(item?.stories, 1, 100_000);
     if (!name || stories === null) continue;
     const id = `E${entities.length + 1}`;
-    entities.push({
+    const entityRecord = {
       id,
       name,
       stories,
@@ -144,7 +147,14 @@ function normalizeOntology(raw) {
         .slice(0, 4)
         .map((theme) => compact(theme, 80))
         .filter(Boolean),
-    });
+    };
+    const qid = compact(item?.qid, 20);
+    if (/^Q\d+$/.test(qid)) entityRecord.qid = qid;
+    const entityType = compact(item?.entity_type, 30);
+    if (entityType) entityRecord.entity_type = entityType;
+    const description = compact(item?.description, 160);
+    if (description) entityRecord.description = description;
+    entities.push(entityRecord);
   }
 
   const events = [];
