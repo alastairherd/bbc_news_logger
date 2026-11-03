@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  actions: read
+  actions: write
   contents: read
   issues: write
 
@@ -58,3 +58,18 @@ jobs:
           for number in $(gh issue list --label collection-alert --state open --json number --jq '.[].number'); do
             gh issue close "$number" --comment "Collection resumed: run ${{ github.run_id }} published a capture."
           done
+      # The Pages schedule asks for a build every three hours but GitHub often runs it six to
+      # thirteen hours apart, so the reliable hourly dispatch tops it up.
+      - name: Rebuild the site if the last build is about three hours old
+        if: steps.fallback.outputs.skip != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since="$(date -u -d '170 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          recent="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow pages.yml \
+            --created ">=$since" --json databaseId --jq length)"
+          if [[ "$recent" == "0" ]]; then
+            gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
+            echo "::notice::Dispatched a site build so it shows this capture."
+          fi
