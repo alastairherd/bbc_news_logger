@@ -248,7 +248,7 @@ uv run python -m bbc_news_logger.jobs.weekly --dry-run
 | Embed, label and cluster | Daily, 12:23 UTC (DeepSeek off-peak) |
 | Weekly theme summaries | Mondays, 12:47 UTC |
 | Compact the dataset | Weekly |
-| Deploy the site | Every three hours and on relevant pushes |
+| Deploy the site | After each capture and on relevant pushes |
 
 A monthly workflow commits a timestamp so GitHub does not disable the schedules on a quiet
 repository.
