@@ -19,6 +19,13 @@ from huggingface_hub import snapshot_download
 from .compaction import download_patterns, parquet_files
 from .config import DEFAULT_DATASET_ID
 from .deepseek import normalize_story_form
+from .ontology import (
+    ONTOLOGY_VERSION,
+    normalize_event_type,
+    normalize_theme,
+    normalize_themes,
+    reconcile_signal_rows,
+)
 
 SEMANTIC_PREFIXES = (
     "data/observations",
@@ -87,11 +94,17 @@ def _latest_week(weekly: pa.Table | None) -> dict[str, object]:
     week = max(row["week_start"] for row in rows)
     latest: dict[str, dict[str, object]] = {}
     for row in rows:
-        if row["week_start"] == week and (
-            row["theme"] not in latest or row["generated_at"] > latest[row["theme"]]["generated_at"]
-        ):
-            latest[row["theme"]] = row
-    themes = sorted(latest.values(), key=lambda row: (-row["article_count"], row["theme"]))
+        if row["week_start"] != week:
+            continue
+        theme = normalize_theme(row.get("theme")) or str(row["theme"])
+        key = theme.casefold()
+        if key not in latest or row["generated_at"] > latest[key]["generated_at"]:
+            updated = dict(row)
+            updated["theme"] = theme
+            latest[key] = updated
+    themes = sorted(
+        latest.values(), key=lambda row: (-int(row["article_count"]), str(row["theme"]))
+    )
     return {
         "weekStart": week.isoformat(),
         "weekEnd": themes[0]["week_end"].isoformat(),
@@ -145,6 +158,7 @@ def _semantic_index(
     signal_by_hash: dict[str, dict[str, object]],
     embeddings: pa.Table | None,
     story_stats: dict[str, dict[str, object]],
+    story_cluster_index: dict[str, int] | None = None,
 ) -> tuple[dict[str, object], bytes]:
     embedding_by_hash = _latest_rows(embeddings, "generated_at")
     latest_by_story: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
@@ -159,6 +173,7 @@ def _semantic_index(
     documents: list[dict[str, object]] = []
     model = "BAAI/bge-small-en-v1.5"
     dimensions = 384
+    cluster_lookup = story_cluster_index or {}
     for story_id, (article, embedding) in sorted(latest_by_story.items()):
         values = [float(value) for value in embedding.get("embedding") or []]
         if not values:
@@ -173,15 +188,24 @@ def _semantic_index(
         content_hash = str(article["content_sha256"])
         signal = signal_by_hash.get(content_hash, {})
         stats = story_stats.get(story_id, {})
+        fetched_iso = article["fetched_at"].astimezone(timezone.utc).isoformat()
+        first_seen_raw = stats.get("first_seen")
+        first_seen_date = str(first_seen_raw)[:10] if first_seen_raw else fetched_iso[:10]
         documents.append(
             {
                 "story_id": story_id,
                 "content_sha256": content_hash,
                 "title": str(article.get("title") or stats.get("title") or "Untitled"),
                 "url": str(article.get("canonical_url") or stats.get("url") or ""),
-                "fetched_at": article["fetched_at"].astimezone(timezone.utc).isoformat(),
+                "fetched_at": fetched_iso,
+                "first_seen": first_seen_date,
                 "surfaces": list(stats.get("surfaces") or []),
                 "best_position": stats.get("best_position"),
+                "front_page_captures": int(stats.get("front_page_captures") or 0),
+                "most_read_captures": int(stats.get("most_read_captures") or 0),
+                "best_front_page": stats.get("best_front_page"),
+                "best_most_read": stats.get("best_most_read"),
+                "cluster_index": cluster_lookup.get(story_id),
                 "summary": str(signal.get("summary") or ""),
                 "topic": str(signal.get("topic") or "unlabelled"),
                 "themes": list(signal.get("themes") or []),
@@ -342,8 +366,13 @@ def _semantic_findings(
 
 def _labelled_articles(
     articles: pa.Table | None, signals: pa.Table | None
-) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]:
-    """Latest successful article fetch and latest label for each content hash."""
+) -> tuple[
+    dict[str, dict[str, object]],
+    dict[str, dict[str, object]],
+    dict[str, list[str]],
+    dict[str, list[str]],
+]:
+    """Latest successful article fetch and normalized label for each content hash."""
 
     article_by_hash: dict[str, dict[str, object]] = {}
     if articles is not None:
@@ -354,18 +383,19 @@ def _labelled_articles(
             existing = article_by_hash.get(content_hash)
             if existing is None or row["fetched_at"] > existing["fetched_at"]:
                 article_by_hash[content_hash] = row
-    signal_by_hash: dict[str, dict[str, object]] = {}
+    raw_signal_by_hash: dict[str, dict[str, object]] = {}
     for row in signals.to_pylist() if signals is not None else []:
         content_hash = str(row.get("content_sha256") or "")
-        existing = signal_by_hash.get(content_hash)
+        existing = raw_signal_by_hash.get(content_hash)
         if content_hash and (
             existing is None or row["generated_at"] > existing["generated_at"]
         ):
-            signal_by_hash[content_hash] = row
-    # Older labels predate the story-form vocabulary check, so they are normalized on read.
-    for row in signal_by_hash.values():
-        row["story_form"] = normalize_story_form(row.get("story_form"))
-    return article_by_hash, signal_by_hash
+            updated = dict(row)
+            # Older labels predate the story-form vocabulary check, so they are normalized on read.
+            updated["story_form"] = normalize_story_form(row.get("story_form"))
+            raw_signal_by_hash[content_hash] = updated
+    signal_by_hash, theme_aliases, entity_aliases = reconcile_signal_rows(raw_signal_by_hash)
+    return article_by_hash, signal_by_hash, theme_aliases, entity_aliases
 
 
 def _story_themes(
@@ -387,6 +417,155 @@ def _story_themes(
     }
 
 
+ONTOLOGY_MIN_STORIES = 5
+ONTOLOGY_MAX_ENTITIES = 400
+
+
+def _semantic_ontology(
+    *,
+    article_by_hash: dict[str, dict[str, object]],
+    signal_by_hash: dict[str, dict[str, object]],
+    story_stats: dict[str, dict[str, object]],
+    recurring: list[dict[str, object]],
+    promotion_themes: list[dict[str, object]],
+    theme_aliases: dict[str, list[str]],
+    entity_aliases: dict[str, list[str]],
+) -> dict[str, object]:
+    """Build the governed semantic ontology catalog of canonical themes, entities, and events."""
+
+    latest_by_story: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
+    for content_hash in article_by_hash.keys() & signal_by_hash.keys():
+        article = article_by_hash[content_hash]
+        story_id = str(article["story_id"])
+        existing = latest_by_story.get(story_id)
+        if existing is None or article["fetched_at"] > existing[0]["fetched_at"]:
+            latest_by_story[story_id] = (article, signal_by_hash[content_hash])
+
+    theme_stories: defaultdict[str, set[str]] = defaultdict(set)
+    theme_front: defaultdict[str, int] = defaultdict(int)
+    theme_read: defaultdict[str, int] = defaultdict(int)
+
+    entity_stories: defaultdict[str, set[str]] = defaultdict(set)
+    entity_front: defaultdict[str, int] = defaultdict(int)
+    entity_read: defaultdict[str, int] = defaultdict(int)
+    entity_themes: defaultdict[str, Counter[str]] = defaultdict(Counter)
+
+    for story_id, (_article, signal) in latest_by_story.items():
+        surfaces = set(story_stats.get(story_id, {}).get("surfaces") or [])
+        on_front = "front_page" in surfaces
+        on_read = "most_read" in surfaces
+        themes = [str(theme) for theme in signal.get("themes") or [] if str(theme)]
+        entities = [str(entity) for entity in signal.get("named_entities") or [] if str(entity)]
+
+        for theme in set(themes):
+            theme_stories[theme].add(story_id)
+            if on_front:
+                theme_front[theme] += 1
+            if on_read:
+                theme_read[theme] += 1
+
+        for entity in set(entities):
+            entity_stories[entity].add(story_id)
+            if on_front:
+                entity_front[entity] += 1
+            if on_read:
+                entity_read[entity] += 1
+            for theme in set(themes):
+                entity_themes[entity][theme] += 1
+
+    promo_by_theme = {str(row["theme"]).casefold(): row for row in promotion_themes}
+
+    themes_out: list[dict[str, object]] = []
+    sorted_themes = sorted(
+        theme_stories.items(), key=lambda item: (-len(item[1]), item[0])
+    )
+    for name, story_ids in sorted_themes:
+        if len(story_ids) < ONTOLOGY_MIN_STORIES:
+            continue
+        promo = promo_by_theme.get(name.casefold())
+        promotion_payload = (
+            {
+                "settled_stories": int(promo["stories"]),
+                "promoted_only": int(promo["promotedOnly"]),
+                "read_only": int(promo["readOnly"]),
+                "both": int(promo["both"]),
+                "reach_rate": promo["reachRate"],
+                "unpromoted_share": promo["unpromotedShare"],
+                "median_lag_minutes": promo["medianLagMinutes"],
+            }
+            if promo is not None
+            else None
+        )
+        themes_out.append(
+            {
+                "name": name,
+                "aliases": theme_aliases.get(name, []),
+                "stories": len(story_ids),
+                "front_page_stories": theme_front[name],
+                "most_read_stories": theme_read[name],
+                "promotion": promotion_payload,
+            }
+        )
+
+    entities_out: list[dict[str, object]] = []
+    sorted_entities = sorted(
+        entity_stories.items(), key=lambda item: (-len(item[1]), item[0])
+    )
+    for name, story_ids in sorted_entities:
+        if len(story_ids) < ONTOLOGY_MIN_STORIES:
+            continue
+        entities_out.append(
+            {
+                "name": name,
+                "aliases": entity_aliases.get(name, []),
+                "stories": len(story_ids),
+                "front_page_stories": entity_front[name],
+                "most_read_stories": entity_read[name],
+                "top_themes": [
+                    theme for theme, _ in entity_themes[name].most_common(4)
+                ],
+            }
+        )
+        if len(entities_out) >= ONTOLOGY_MAX_ENTITIES:
+            break
+
+    events_out = [
+        {
+            "cluster_id": str(event["cluster_id"]),
+            "label": str(event["label"]),
+            "event_type": str(event["event_type"]),
+            "themes": list(event.get("themes") or []),
+            "first_seen": str(event["first_seen"])[:10],
+            "last_seen": str(event["last_seen"])[:10],
+            "article_count": int(event["article_count"]),
+        }
+        for event in recurring
+    ]
+
+    return {
+        "schemaVersion": 1,
+        "ontologyVersion": ONTOLOGY_VERSION,
+        "contracts": {
+            "story_grain": (
+                "One distinct BBC story URL (story_id); counts use the latest fetched "
+                "labelled article version per story."
+            ),
+            "surface_capture_grain": (
+                "front_page_captures and most_read_captures count distinct scrape runs "
+                "on each surface."
+            ),
+            "promotion_contract": (
+                f"Promotion metrics compare only paired captures holding both lists after a "
+                f"{PROMOTION_SETTLE_HOURS}-hour settle window and require at least "
+                f"{PROMOTION_THEME_MINIMUM} settled stories per theme."
+            ),
+        },
+        "themes": themes_out,
+        "entities": entities_out,
+        "events": events_out,
+    }
+
+
 def _semantic_payloads(
     *,
     article_by_hash: dict[str, dict[str, object]],
@@ -394,6 +573,9 @@ def _semantic_payloads(
     embeddings: pa.Table | None,
     events: pa.Table | None,
     stories: list[dict[str, object]],
+    promotion_themes: list[dict[str, object]] | None = None,
+    theme_aliases: dict[str, list[str]] | None = None,
+    entity_aliases: dict[str, list[str]] | None = None,
 ) -> tuple[dict[str, object], bytes, dict[str, object]]:
     counts: Counter[tuple[str, str, str]] = Counter()
     for content_hash, signal in signal_by_hash.items():
@@ -440,7 +622,11 @@ def _semantic_payloads(
                         "surfaces": stats.get("surfaces", []),
                     }
                 )
-            theme_counts = Counter(theme for row in rows for theme in row.get("themes") or [])
+            theme_counts = Counter(
+                theme
+                for row in rows
+                for theme in normalize_themes(row.get("themes") or [])
+            )
             recurring.append(
                 {
                     "cluster_id": cluster_id,
@@ -448,7 +634,7 @@ def _semantic_payloads(
                         str(row["cluster_label"]) for row in rows
                     ).most_common(1)[0][0],
                     "event_type": Counter(
-                        str(row["event_type"]) for row in rows
+                        normalize_event_type(row.get("event_type")) for row in rows
                     ).most_common(1)[0][0],
                     "themes": [value for value, _ in theme_counts.most_common(5)],
                     "first_seen": min(row["fetched_at"] for row in rows)
@@ -464,9 +650,27 @@ def _semantic_payloads(
             )
         recurring.sort(key=lambda row: (row["last_seen"], row["article_count"]), reverse=True)
 
+    story_cluster_index: dict[str, int] = {}
+    for cluster_idx, cluster in enumerate(recurring):
+        for article_entry in cluster.get("articles") or []:
+            story_cluster_index[str(article_entry["story_id"])] = cluster_idx
+
     findings = _semantic_findings(article_by_hash, signal_by_hash, stories, recurring)
     documents, vector_bytes = _semantic_index(
-        article_by_hash, signal_by_hash, embeddings, story_stats
+        article_by_hash,
+        signal_by_hash,
+        embeddings,
+        story_stats,
+        story_cluster_index,
+    )
+    ontology = _semantic_ontology(
+        article_by_hash=article_by_hash,
+        signal_by_hash=signal_by_hash,
+        story_stats=story_stats,
+        recurring=recurring,
+        promotion_themes=promotion_themes or [],
+        theme_aliases=theme_aliases or {},
+        entity_aliases=entity_aliases or {},
     )
     article_count = len(article_by_hash)
     signal_count = len(article_by_hash.keys() & signal_by_hash.keys())
@@ -477,6 +681,7 @@ def _semantic_payloads(
             "recurring-events.json": recurring,
             "semantic-findings.json": findings,
             "semantic-documents.json": documents,
+            "semantic-ontology.json": ontology,
         },
         vector_bytes,
         {
@@ -486,6 +691,9 @@ def _semantic_payloads(
             "recurringEventCount": len(recurring),
             "searchDocumentCount": documents["documentCount"],
             "embeddingModel": documents["model"],
+            "ontologyVersion": ONTOLOGY_VERSION,
+            "ontologyThemeCount": len(ontology["themes"]),
+            "ontologyEntityCount": len(ontology["entities"]),
         },
     )
 
@@ -725,6 +933,12 @@ def build_marts(
                 max(observed_at) AS last_seen,
                 count(*) AS observation_count,
                 min(position) AS best_position,
+                count(DISTINCT scrape_id) FILTER (WHERE surface = 'front_page')
+                    AS front_page_captures,
+                count(DISTINCT scrape_id) FILTER (WHERE surface = 'most_read')
+                    AS most_read_captures,
+                min(position) FILTER (WHERE surface = 'front_page') AS best_front_page,
+                min(position) FILTER (WHERE surface = 'most_read') AS best_most_read,
                 list_sort(list_distinct(list(surface))) AS surfaces
             FROM observations
             GROUP BY story_id
@@ -777,21 +991,27 @@ def build_marts(
             """
         )
     )
-    article_by_hash, signal_by_hash = _labelled_articles(articles, signals)
+    article_by_hash, signal_by_hash, theme_aliases, entity_aliases = _labelled_articles(
+        articles, signals
+    )
+    promotion_attention = _promotion_attention(
+        con, _story_themes(article_by_hash, signal_by_hash)
+    )
     semantic_payloads, semantic_vectors, semantic_manifest = _semantic_payloads(
         article_by_hash=article_by_hash,
         signal_by_hash=signal_by_hash,
         embeddings=embeddings,
         events=events,
         stories=stories,
+        promotion_themes=list(promotion_attention.get("themes") or []),  # type: ignore[arg-type]
+        theme_aliases=theme_aliases,
+        entity_aliases=entity_aliases,
     )
     payloads = {
         "stories.json": stories,
         "rank-series.json": rank_series,
         "daily.json": daily,
-        "promotion-attention.json": _promotion_attention(
-            con, _story_themes(article_by_hash, signal_by_hash)
-        ),
+        "promotion-attention.json": promotion_attention,
         "weekly-summaries.json": _latest_week(weekly),
         **semantic_payloads,
     }

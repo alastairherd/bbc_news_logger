@@ -20,8 +20,9 @@ The site is static. Overview compares the latest capture with the one before it.
 full story archive. Trends follows themes and recurring stories over time, with a weekly summary
 of the most-covered themes. Promotion vs attention compares the two lists story by story: which
 front-page stories reach Most Read, which reach it without front-page promotion, and how long it
-takes. Ask the archive searches by meaning in the browser and can request a short answer that cites
-the articles it found.
+takes. Ask the archive searches by meaning in the browser, matches query concepts against an
+archive ontology, and can request a short answer that cites both the articles it found and
+archive-wide theme or entity statistics.
 
 Labels, clusters and answers come from models and can be wrong.
 
@@ -62,9 +63,10 @@ BBC News homepage ──► GitHub Actions ──► Hugging Face (Parquet)
 
 Scheduled GitHub Actions jobs collect, fetch and label the stories, then publish Parquet files to
 Hugging Face. Each Pages build reads those tables with DuckDB and writes small JSON files that the
-site loads directly; search runs in a browser worker against a quantised vector index. A Cloudflare
-Worker handles the two things that need a server: starting the hourly collection, because GitHub's
-scheduler dropped too many runs, and making the capped DeepSeek call behind Ask the archive.
+site loads directly; search runs in a browser worker against a quantised vector index and a static
+ontology mart. A Cloudflare Worker handles the two things that need a server: starting the hourly
+collection, because GitHub's scheduler dropped too many runs, and making the capped DeepSeek call
+behind Ask the archive.
 
 ## How it was built
 
@@ -84,9 +86,10 @@ The architecture follows Spicy Data's
 precomputing with DuckDB and serving a static Astro site instead of running a BI tool. I wanted
 something that could run unattended for close to nothing, so it suited me. Ask the archive is
 modelled on the
-[Fenic Hacker News agent example](https://github.com/typedef-ai/fenic-examples/tree/main/hn_agent):
-search finds the articles first, and the model can only answer from those numbered sources and must
-cite them.
+[Fenic Hacker News agent example](https://github.com/typedef-ai/fenic-examples/tree/main/hn_agent)
+and ideas from NVIDIA's [Auto Ontology](https://github.com/NVIDIA/auto-ontology): search finds the
+articles and matching archive concepts first, and the model can only answer from those numbered
+sources and must cite them.
 
 I chose DeepSeek V4 Flash for labelling because it was far cheaper than comparable models for the
 quality, and moved to V4.1 Flash when it replaced V4. Models have kept improving since then, and
@@ -112,6 +115,15 @@ examples:
 - The Trends page froze the browser. Profiling showed it was building 26,521 theme options and
   rescanning 70,685 rows on the main thread. Moving the indexing into a Web Worker and listing only
   the most active themes fixed it.
+- Ask the archive could originally see only the twenty articles returned by vector search, so broad
+  questions about how often a topic reached Most Read or how long coverage ran could only be
+  answered from that sample. Adapting the reconciliation and semantic-layer ideas from NVIDIA's
+  Auto Ontology, the build now normalises free-form themes and named entities on read (merging
+  variants such as “The NHS” and “NHS”, or “Sir Keir Starmer” and “Keir Starmer”, without
+  rewriting the stored labels) and writes a static ontology mart with archive-wide story counts,
+  promotion reach rates and recurring-event spans. The browser worker matches those concepts
+  alongside the vector search so answers can cite both specific articles (`[1]`–`[20]`) and
+  archive-level statistics (`[T1]`, `[E1]`, `[R1]`).
 - Nothing on the site showed the six-week outage, or that GitHub had been running the hourly job
   only every few hours. A Cloudflare cron now starts collection, and a GitHub issue is opened if no
   capture lands for three hours.

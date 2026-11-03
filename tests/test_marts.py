@@ -47,6 +47,7 @@ def test_build_marts_produces_static_research_payloads(tmp_path) -> None:
         "recurring-events.json",
         "semantic-findings.json",
         "semantic-documents.json",
+        "semantic-ontology.json",
         "semantic-vectors.i8",
     }
     assert manifest["semantics"]["coveragePercent"] == 0.0
@@ -124,10 +125,17 @@ def test_build_marts_quantizes_aligned_browser_search_index(tmp_path) -> None:
     )
 
     metadata = json.loads((tmp_path / "semantic-documents.json").read_text())
+    ontology = json.loads((tmp_path / "semantic-ontology.json").read_text())
     assert manifest["semantics"]["searchDocumentCount"] == 1
     assert metadata["documentCount"] == 1
     assert metadata["documents"][0]["story_id"] == observation.story_id
     assert metadata["documents"][0]["summary"] == signal["summary"]
+    assert metadata["documents"][0]["first_seen"] == "2026-07-12"
+    assert metadata["documents"][0]["front_page_captures"] == 1
+    assert metadata["documents"][0]["most_read_captures"] == 0
+    assert metadata["documents"][0]["best_front_page"] == 2
+    assert metadata["documents"][0]["best_most_read"] is None
+    assert ontology["ontologyVersion"] == "2026-11-v1"
     assert len((tmp_path / "semantic-vectors.i8").read_bytes()) == EMBEDDING_DIMENSIONS
 
 

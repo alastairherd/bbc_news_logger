@@ -1,20 +1,11 @@
-interface SemanticDocument {
-  story_id: string;
-  content_sha256: string;
-  title: string;
-  url: string;
-  fetched_at: string;
-  surfaces: string[];
-  best_position: number | null;
-  summary: string;
-  topic: string;
-  themes: string[];
-  story_form: string;
-  event_type: string;
-  named_entities: string[];
-  scale: number;
-  norm: number;
-}
+import {
+  buildOntologyLookup,
+  rankSearchDocuments,
+  type OntologyLookup,
+  type SearchFilters,
+  type SemanticDocument,
+  type SemanticOntology,
+} from "../lib/ontology-search";
 
 interface SemanticIndex {
   model: string;
@@ -22,12 +13,6 @@ interface SemanticIndex {
   documentCount: number;
   vectorFile: string;
   documents: SemanticDocument[];
-}
-
-interface SearchFilters {
-  surface?: string;
-  topic?: string;
-  storyForm?: string;
 }
 
 interface ProgressInfo {
@@ -53,6 +38,7 @@ let vectors = new Int8Array();
 let dimensions = 0;
 let extractor: Extractor | null = null;
 let modelFailed = false;
+let ontologyLookup: OntologyLookup = buildOntologyLookup(null);
 
 function send(type: string, payload: Record<string, unknown> = {}) {
   self.postMessage({ type, ...payload });
@@ -88,29 +74,18 @@ function scoreDocuments(left: number, right: number): number {
   );
 }
 
-function matchesFilters(document: SemanticDocument, filters: SearchFilters): boolean {
-  return (
-    (!filters.surface || filters.surface === "all" || document.surfaces.includes(filters.surface)) &&
-    (!filters.topic || filters.topic === "all" || document.topic === filters.topic) &&
-    (!filters.storyForm || filters.storyForm === "all" || document.story_form === filters.storyForm)
-  );
-}
-
-function lexicalScore(query: string, document: SemanticDocument): number {
-  const terms = query.toLocaleLowerCase().match(/[a-z0-9]+/g) ?? [];
-  if (!terms.length) return 0;
-  const title = document.title.toLocaleLowerCase();
-  const text = `${title} ${document.summary} ${document.themes.join(" ")} ${document.named_entities.join(" ")}`.toLocaleLowerCase();
-  const matches = terms.filter((term) => text.includes(term)).length;
-  const titleMatches = terms.filter((term) => title.includes(term)).length;
-  return (matches + titleMatches * 1.5) / (terms.length * 2.5);
-}
-
-async function loadIndex(metadataUrl: string, vectorsUrl: string) {
+async function loadIndex(metadataUrl: string, vectorsUrl: string, ontologyUrl?: string) {
   send("status", { phase: "index-loading", message: "Downloading the semantic index…" });
-  const [metadataResponse, vectorsResponse] = await Promise.all([
+  const ontologyPromise = ontologyUrl
+    ? fetch(ontologyUrl)
+        .then((res) => (res.ok ? (res.json() as Promise<SemanticOntology>) : null))
+        .catch(() => null)
+    : Promise.resolve(null);
+
+  const [metadataResponse, vectorsResponse, ontologyData] = await Promise.all([
     fetch(metadataUrl),
     fetch(vectorsUrl),
+    ontologyPromise,
   ]);
   if (!metadataResponse.ok || !vectorsResponse.ok) {
     throw new Error("The semantic index could not be downloaded.");
@@ -120,6 +95,7 @@ async function loadIndex(metadataUrl: string, vectorsUrl: string) {
   documents = metadata.documents;
   dimensions = metadata.dimensions;
   vectors = new Int8Array(vectorBuffer);
+  ontologyLookup = buildOntologyLookup(ontologyData);
   if (vectors.length !== documents.length * dimensions) {
     throw new Error("The semantic index metadata and vectors are out of sync.");
   }
@@ -128,6 +104,7 @@ async function loadIndex(metadataUrl: string, vectorsUrl: string) {
     model: metadata.model,
     topics: [...new Set(documents.map((document) => document.topic))].sort(),
     storyForms: [...new Set(documents.map((document) => document.story_form))].sort(),
+    ontologyVersion: ontologyLookup.ontology.ontologyVersion,
   });
 }
 
@@ -173,18 +150,19 @@ async function runSearch(
     });
     queryVector = result.data;
   }
-  const results = documents
-    .map((document, index) => ({
-      document,
-      score: queryVector ? scoreQuery(queryVector, index) : lexicalScore(query, document),
-    }))
-    .filter(({ document, score }) => score > 0 && matchesFilters(document, filters))
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit);
+  const { results, ontologyContext } = rankSearchDocuments({
+    query,
+    documents,
+    filters,
+    lookup: ontologyLookup,
+    semanticScoreAt: queryVector ? (index) => scoreQuery(queryVector, index) : undefined,
+    limit,
+  });
   send("search-results", {
     requestId,
     mode: semantic ? "semantic" : "keyword-fallback",
     results,
+    ontologyContext,
   });
 }
 
@@ -210,7 +188,8 @@ function related(storyId: string, requestId: number, limit = 6) {
 self.addEventListener("message", (event: MessageEvent) => {
   const message = event.data as Record<string, unknown>;
   if (message.type === "init") {
-    void loadIndex(String(message.metadataUrl), String(message.vectorsUrl))
+    const ontologyUrl = message.ontologyUrl ? String(message.ontologyUrl) : undefined;
+    void loadIndex(String(message.metadataUrl), String(message.vectorsUrl), ontologyUrl)
       .then(() => (message.loadModel === false ? undefined : loadModel()))
       .catch((error) => send("fatal-error", {
         message: error instanceof Error ? error.message : "Semantic search failed to start.",

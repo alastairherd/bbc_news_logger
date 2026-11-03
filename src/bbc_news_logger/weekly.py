@@ -13,6 +13,7 @@ from typing import Any
 import pyarrow as pa
 
 from .deepseek import DEEPSEEK_MODEL, token_cost_usd
+from .ontology import normalize_themes
 from .titles import repair_title
 
 WEEKLY_PREFIX = "semantic/weekly"
@@ -70,7 +71,9 @@ def _latest_signals(signals: pa.Table) -> dict[str, dict[str, Any]]:
         if content_hash and (
             content_hash not in latest or row["generated_at"] > latest[content_hash]["generated_at"]
         ):
-            latest[content_hash] = row
+            updated = dict(row)
+            updated["themes"] = normalize_themes(row.get("themes") or [])
+            latest[content_hash] = updated
     return latest
 
 
@@ -86,7 +89,11 @@ def theme_digests(
         if start <= article["first_observed_at"] < end and article["content_sha256"] in labels
     ]
     counts = Counter(theme for _article, label in week for theme in set(label["themes"]))
-    themes = [theme for theme, count in counts.most_common() if count >= MIN_ARTICLES][:MAX_THEMES]
+    themes = [
+        theme
+        for theme, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        if count >= MIN_ARTICLES
+    ][:MAX_THEMES]
     digests = []
     for theme in themes:
         rows = sorted(

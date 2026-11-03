@@ -8,7 +8,7 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:4321",
   "http://127.0.0.1:4321",
 ]);
-const PROMPT_VERSION = "2026-10-29-v3";
+const PROMPT_VERSION = "2026-11-03-v4";
 const requestsByClient = new Map();
 const DEFAULT_DAILY_BUDGET_USD = 0.5;
 const BUDGET_EXHAUSTED = "Today's shared answer budget has been used. Answers resume after midnight UTC.";
@@ -88,7 +88,17 @@ export default {
       return json({ detail }, 422, origin);
     }
 
-    const canonical = JSON.stringify({ promptVersion: PROMPT_VERSION, ...normalized });
+    const canonical = JSON.stringify({
+      promptVersion: PROMPT_VERSION,
+      query: normalized.query,
+      reasoning: normalized.reasoning,
+      urls: normalized.evidence.map((item) => item.url),
+      ontologyIds: [
+        ...(normalized.ontology?.themes ?? []).map((item) => `${item.id}:${item.name}`),
+        ...(normalized.ontology?.entities ?? []).map((item) => `${item.id}:${item.name}`),
+        ...(normalized.ontology?.events ?? []).map((item) => `${item.id}:${item.cluster_id}`),
+      ],
+    });
     const cacheKey = new Request(`https://archive-answer-cache.invalid/${await digest(canonical)}`);
     const cache = caches.default;
     const cached = await cache.match(cacheKey);
@@ -98,7 +108,13 @@ export default {
     // Without the shared ledger there is no spending limit, so the paid call is refused.
     if (!budget) return json({ detail: "The shared answer budget is not configured." }, 503, origin);
 
-    const body = deepSeekRequest(normalized.query, normalized.evidence, normalized.reasoning, normalized.archive);
+    const body = deepSeekRequest(
+      normalized.query,
+      normalized.evidence,
+      normalized.reasoning,
+      normalized.archive,
+      normalized.ontology ?? null,
+    );
     const day = utcDay();
     const reservedUsd = maximumRequestCostUsd(body);
     const reservation = await budget.reserve(day, reservedUsd, dailyLimitUsd(env));
@@ -113,7 +129,13 @@ export default {
       });
       const payload = await provider.json();
       if (!provider.ok) throw new Error(String(payload?.error?.message ?? `DeepSeek returned ${provider.status}`));
-      const answer = parseCompletion(payload, normalized.evidence.length, normalized.reasoning);
+      const answer = parseCompletion(
+        payload,
+        normalized.evidence.length,
+        normalized.reasoning,
+        new Date(),
+        normalized.ontology ?? null,
+      );
       // Replace the worst-case reservation with the billed cost. Failed calls keep their reservation.
       context.waitUntil(budget.settle(day, reservedUsd, answer.usage.costUsd));
       const cacheResponse = new Response(JSON.stringify(answer), {

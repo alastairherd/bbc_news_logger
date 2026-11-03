@@ -15,6 +15,7 @@ import pyarrow as pa
 from huggingface_hub import HfApi
 
 from .config import DEFAULT_DATASET_ID
+from .ontology import reconcile_signal_rows
 from .semantics import EMBEDDING_PREFIX, SIGNAL_PREFIX, download_dataset_tables
 from .storage import write_parquet
 
@@ -106,7 +107,8 @@ def cluster_events(
     supported_similarity: float = 0.80,
 ) -> pa.Table:
     article_rows = _latest_by_hash(articles, "fetched_at")
-    signal_rows = _latest_by_hash(signals, "generated_at")
+    raw_signal_rows = _latest_by_hash(signals, "generated_at")
+    signal_rows, _, _ = reconcile_signal_rows(raw_signal_rows)
     embedding_rows = _latest_by_hash(embeddings, "generated_at")
     hashes = sorted(
         article_rows.keys() & signal_rows.keys() & embedding_rows.keys(),

@@ -58,7 +58,7 @@ for (const mart of ["data/stories.json", "data/rank-series.json"]) {
   if (!exploreOutput.includes(mart)) throw new Error(`explore route is missing mart request: ${mart}`);
 }
 
-for (const mart of ["data/semantic-documents.json", "data/semantic-vectors.i8"]) {
+for (const mart of ["data/semantic-documents.json", "data/semantic-vectors.i8", "data/semantic-ontology.json"]) {
   if (!signalOutput.includes(mart)) throw new Error(`signals route is missing mart request: ${mart}`);
 }
 
@@ -70,4 +70,4 @@ if (!promotionOutput.includes("data/promotion-attention.json")) {
   throw new Error("promotion route is missing mart request: data/promotion-attention.json");
 }
 
-console.log(`Verified ${pages.length} GitHub Pages routes and thirteen data-mart requests.`);
+console.log(`Verified ${pages.length} GitHub Pages routes and fourteen data-mart requests.`);

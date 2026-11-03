@@ -12,6 +12,7 @@ on:
     paths:
       - "web/**"
       - "src/bbc_news_logger/marts.py"
+      - "src/bbc_news_logger/ontology.py"
       - "uv.lock"
       - ".github/workflows/pages.yml"
 

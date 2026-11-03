@@ -58,8 +58,15 @@ import Layout from "../layouts/Layout.astro";
 
     <p class="search-summary" id="search-summary" aria-live="polite">The first search downloads the story index and a small query model to this browser.</p>
 
-
     <section class="answer" id="research-answer" aria-live="polite" hidden></section>
+
+    <section class="ontology-panel" id="ontology-context" aria-labelledby="ontology-heading" hidden>
+      <div class="ontology-head">
+        <h2 id="ontology-heading" class="rule-heading">Matched archive concepts</h2>
+        <p class="source-note" id="ontology-summary"></p>
+      </div>
+      <div class="ontology-grid" id="ontology-cards"></div>
+    </section>
 
     <section class="sources" aria-labelledby="sources-heading">
       <h2 id="sources-heading" class="rule-heading">Sources</h2>
@@ -71,11 +78,14 @@ import Layout from "../layouts/Layout.astro";
 
   <script>
     import { titleParts } from "../lib/titles";
+    import type {
+      OntologyContext,
+      OntologyEvent,
+      SearchResultItem,
+    } from "../lib/ontology-search";
 
     interface Manifest { latestObservationAt?: string | null; semantics?: { signalCount: number; articleVersionCount: number; coveragePercent: number; recurringEventCount: number; searchDocumentCount?: number } }
-    interface SearchDocument { story_id: string; title: string; url: string; fetched_at: string; surfaces: string[]; best_position: number | null; summary: string; topic: string; themes: string[]; story_form: string; event_type: string }
-    interface SearchResult { document: SearchDocument; score: number }
-    interface ResearchFinding { claim: string; sources: number[] }
+    interface ResearchFinding { claim: string; sources: Array<number | string> }
     interface ResearchResponse { answer: string; findings: ResearchFinding[]; limitations: string; model: string; cached: boolean; reasoning?: string; usage?: { promptTokens: number; completionTokens: number; costUsd: number } }
 
     const SURFACE_NAME: Record<string, string> = { front_page: "Front page", most_read: "Most Read" };
@@ -83,13 +93,14 @@ import Layout from "../layouts/Layout.astro";
     const researchApi = import.meta.env.PUBLIC_RESEARCH_API_URL || "";
     const number = new Intl.NumberFormat("en-GB");
     const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-    const externalIcon = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 4 12"/></svg>`;
     const alertIcon = `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v4M8 11v.25"/></svg>`;
     let semanticReady = false;
     let semanticStarted = false;
     let pendingSearch = false;
     let askAfterSearch = false;
-    let lastSearchResults: SearchResult[] = [];
+    let lastSearchResults: SearchResultItem[] = [];
+    let lastOntologyContext: OntologyContext | null = null;
+    let lastKnownOntologyIds = new Map<string, string>();
     let requestId = 0;
     // Date of the newest capture, so the answer service can tell the model where the archive ends.
     let latestCapture = "";
@@ -131,6 +142,7 @@ import Layout from "../layouts/Layout.astro";
           type: "init",
           metadataUrl: new URL(`${base}data/semantic-documents.json`, location.href).href,
           vectorsUrl: new URL(`${base}data/semantic-vectors.i8`, location.href).href,
+          ontologyUrl: new URL(`${base}data/semantic-ontology.json`, location.href).href,
           loadModel: true,
         })).catch(() => {
           semanticStarted = false;
@@ -173,20 +185,92 @@ import Layout from "../layouts/Layout.astro";
       const params = new URLSearchParams(location.search); params.set("q", query); history.replaceState(null, "", `${location.pathname}?${params}`);
     }
 
-    function renderSearchResults(results: SearchResult[], mode: string) {
+    function renderOntologyContext(context: OntologyContext | null) {
+      lastOntologyContext = context;
+      lastKnownOntologyIds = new Map<string, string>();
+      const section = element("#ontology-context");
+      const cards = element("#ontology-cards");
+      const summary = element("#ontology-summary");
+      if (!context || (!context.themes.length && !context.entities.length && !context.events.length)) {
+        section.hidden = true;
+        cards.innerHTML = "";
+        summary.textContent = "";
+        return;
+      }
+
+      for (const theme of context.themes) lastKnownOntologyIds.set(theme.id, `Theme: ${theme.name}`);
+      for (const entity of context.entities) lastKnownOntologyIds.set(entity.id, `Entity: ${entity.name}`);
+      for (const event of context.events) lastKnownOntologyIds.set(event.id, `Recurring event: ${event.label}`);
+
+      section.hidden = false;
+      summary.textContent = context.matchedConceptStoryCount
+        ? `Archive-wide totals across ${number.format(context.matchedConceptStoryCount)} matching stories, passed alongside the top 20 articles.`
+        : "Archive-wide concept statistics passed alongside the top 20 articles.";
+
+      const themeCards = context.themes.map((theme) => {
+        const promo = theme.promotion;
+        const promoText = promo && promo.reach_rate !== null
+          ? `${promo.reach_rate}% of promoted stories reached Most Read (${number.format(promo.settled_stories)} settled stories${promo.median_lag_minutes !== null ? `, median lag ${promo.median_lag_minutes}m` : ""})`
+          : `${number.format(theme.front_page_stories)} Front page · ${number.format(theme.most_read_stories)} Most Read`;
+        return `<article class="ontology-card" id="ontology-${escape(theme.id)}">
+          <div class="ontology-card-head"><span class="citation">${escape(theme.id)}</span><span class="ontology-kind">Theme</span><h3><a href="${base}trends/?dimension=theme&value=${encodeURIComponent(theme.name)}">${escape(theme.name)}</a></h3></div>
+          <p class="ontology-stat"><strong>${number.format(theme.stories)}</strong> archive stories · ${escape(promoText)}</p>
+        </article>`;
+      });
+
+      const entityCards = context.entities.map((entity) => `
+        <article class="ontology-card" id="ontology-${escape(entity.id)}">
+          <div class="ontology-card-head"><span class="citation">${escape(entity.id)}</span><span class="ontology-kind">Entity</span><h3>${escape(entity.name)}</h3></div>
+          <p class="ontology-stat"><strong>${number.format(entity.stories)}</strong> archive stories (${number.format(entity.front_page_stories)} Front page · ${number.format(entity.most_read_stories)} Most Read)</p>
+          ${entity.top_themes.length ? `<p class="story-meta">${entity.top_themes.slice(0, 3).map((theme) => `<span>${escape(theme)}</span>`).join("")}</p>` : ""}
+        </article>`);
+
+      const eventCards = context.events.map((event) => `
+        <article class="ontology-card" id="ontology-${escape(event.id)}">
+          <div class="ontology-card-head"><span class="citation">${escape(event.id)}</span><span class="ontology-kind">Continuing story</span><h3><a href="${base}trends/#recurring-heading">${escape(event.label)}</a></h3></div>
+          <p class="ontology-stat"><strong>${number.format(event.article_count)}</strong> stories from ${escape(event.first_seen)} to ${escape(event.last_seen)}</p>
+        </article>`);
+
+      cards.innerHTML = [...themeCards, ...entityCards, ...eventCards].join("");
+    }
+
+    function formatSurfaceMetrics(document: SearchResultItem["document"]): string {
+      if (!document.surfaces.length) return `<span>Article archive only</span>`;
+      const parts: string[] = [];
+      if (document.surfaces.includes("front_page")) {
+        const best = document.best_front_page ? ` #${document.best_front_page}` : "";
+        const caps = document.front_page_captures ? ` (${document.front_page_captures}×)` : "";
+        parts.push(`<span class="list-tag list-front_page">Front page${best}${caps}</span>`);
+      }
+      if (document.surfaces.includes("most_read")) {
+        const best = document.best_most_read ? ` #${document.best_most_read}` : "";
+        const caps = document.most_read_captures ? ` (${document.most_read_captures}×)` : "";
+        parts.push(`<span class="list-tag list-most_read">Most Read${best}${caps}</span>`);
+      }
+      return parts.length
+        ? `<span>${parts.join(" · ")}</span>`
+        : `<span>${document.surfaces.map((surface) => `<span class="list-tag list-${surface}">${SURFACE_NAME[surface] ?? escape(surface)}</span>`).join(" ")}</span>`;
+    }
+
+    function renderSearchResults(
+      results: SearchResultItem[],
+      mode: string,
+      ontologyContext: OntologyContext | null = null,
+    ) {
       const query = control("#semantic-query").value.trim();
       lastSearchResults = results;
+      renderOntologyContext(ontologyContext);
       element("#search-summary").textContent = results.length
         ? `${results.length} closest matches for “${query}”${mode === "semantic" ? "" : ", using keyword matching because the search model is unavailable"}.`
         : `No stories matched “${query}” with these filters.`;
-      element("#semantic-results").innerHTML = results.length ? results.map(({ document, score }, index) => `
+      element("#semantic-results").innerHTML = results.length ? results.map(({ document, score, matchedSignals, eventCluster }, index) => `
         <li class="source" id="source-${index + 1}">
           <span class="source-number" aria-label="Source ${index + 1}">${index + 1}</span>
           <div>
             <h3><a href="${escape(document.url)}">${headline(document.title, document.url)}<span class="sr-only"> (opens BBC News)</span></a></h3>
-            <p class="story-meta"><span>${date.format(new Date(document.fetched_at))}</span>${document.surfaces.length ? `<span>${document.surfaces.map((surface) => `<span class="list-tag list-${surface}">${SURFACE_NAME[surface] ?? escape(surface)}</span>`).join(" ")}</span>` : `<span>Article archive only</span>`}<span>${escape(label(document.story_form))}</span><span>Similarity ${score.toFixed(2)}</span></p>
+            <p class="story-meta"><span>${date.format(new Date(document.fetched_at))}</span>${formatSurfaceMetrics(document)}<span>${escape(label(document.story_form))}</span><span>Similarity ${score.toFixed(2)}</span></p>
             ${document.summary ? `<p class="source-summary">${escape(document.summary)}</p>` : ""}
-            <p class="story-meta"><span>${escape(label(document.topic))}</span>${document.themes.slice(0, 4).map((theme) => `<span>${escape(label(theme))}</span>`).join("")}<span><a class="meta-link" href="${base}explore/?story=${encodeURIComponent(document.story_id)}">Archive record<span class="sr-only">: ${escape(titleParts(document.title, document.url).text)}</span></a></span></p>
+            <p class="story-meta"><span>${escape(label(document.topic))}</span>${document.themes.slice(0, 4).map((theme) => `<span>${escape(label(theme))}</span>`).join("")}${eventCluster ? `<span><a class="meta-link" href="${base}trends/#recurring-heading">Continuing story (${number.format(eventCluster.article_count)})</a></span>` : ""}${matchedSignals?.length ? `<span>Matched: ${escape(matchedSignals.slice(0, 2).join(", "))}</span>` : ""}<span><a class="meta-link" href="${base}explore/?story=${encodeURIComponent(document.story_id)}">Archive record<span class="sr-only">: ${escape(titleParts(document.title, document.url).text)}</span></a></span></p>
           </div>
         </li>`).join("") : `<li class="empty">Try broader wording or clear a filter.</li>`;
       if (askAfterSearch) {
@@ -196,16 +280,29 @@ import Layout from "../layouts/Layout.astro";
       }
     }
 
-    function sourceLinks(sources: number[]): string {
-      return sources.map((source) => lastSearchResults[source - 1]
-        ? `<a class="citation" href="#source-${source}" aria-label="Source ${source}">${source}</a>`
-        : "").join("");
+    function sourceLinks(sources: Array<number | string>): string {
+      return sources.map((source) => {
+        if (typeof source === "number" || /^\d+$/.test(String(source))) {
+          const num = Number(source);
+          return lastSearchResults[num - 1]
+            ? `<a class="citation" href="#source-${num}" aria-label="Source ${num}">${num}</a>`
+            : "";
+        }
+        const id = String(source);
+        const title = lastKnownOntologyIds.get(id);
+        return title
+          ? `<a class="citation" href="#ontology-${escape(id)}" aria-label="${escape(title)}">${escape(id)}</a>`
+          : "";
+      }).join("");
     }
 
     function citedText(value: string): string {
-      return escape(value).replace(/\[(\d+)\]/g, (marker, index) => {
-        const source = Number(index);
-        return lastSearchResults[source - 1] ? sourceLinks([source]) : marker;
+      return escape(value).replace(/\[(\d+|[TER]\d+)\]/g, (marker, token) => {
+        if (/^\d+$/.test(token)) {
+          const source = Number(token);
+          return lastSearchResults[source - 1] ? sourceLinks([source]) : marker;
+        }
+        return lastKnownOntologyIds.has(token) ? sourceLinks([token]) : marker;
       });
     }
 
@@ -217,12 +314,30 @@ import Layout from "../layouts/Layout.astro";
       return value === "max" || value === "high" ? "Reasoned" : "Fast";
     }
 
-    async function requestResearch(query: string, evidence: Record<string, unknown>[], signal: AbortSignal): Promise<ResearchResponse> {
+    async function requestResearch(
+      query: string,
+      evidence: Record<string, unknown>[],
+      ontology: OntologyContext | null,
+      signal: AbortSignal,
+    ): Promise<ResearchResponse> {
       if (!researchApi) throw new Error("The shared answer service is not configured for this site.");
+      const payload: Record<string, unknown> = {
+        query,
+        evidence,
+        reasoning: reasoningDepth(),
+        archive: { latest_capture: latestCapture },
+      };
+      if (ontology && (ontology.themes.length || ontology.entities.length || ontology.events.length)) {
+        payload.ontology = {
+          themes: ontology.themes,
+          entities: ontology.entities,
+          events: ontology.events,
+        };
+      }
       const response = await fetch(researchApi, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, evidence, reasoning: reasoningDepth(), archive: { latest_capture: latestCapture } }),
+        body: JSON.stringify(payload),
         signal,
       });
       const value = await response.json().catch(() => ({})) as ResearchResponse & { detail?: string };
@@ -239,15 +354,28 @@ import Layout from "../layouts/Layout.astro";
       panel.innerHTML = `<p class="answer-state">Reading ${Math.min(20, lastSearchResults.length)} sources in ${reasoningLabel(depth).toLowerCase()} mode${depth === "max" ? ". Reasoned answers can take a minute or more" : ""}…</p>`;
       // The answer belongs to this search; if another search replaces the sources, it is discarded.
       const askId = requestId;
-      const evidence = lastSearchResults.slice(0, 20).map(({ document, score }) => ({
-        title: titleParts(document.title, document.url).text, url: document.url, archived_on: document.fetched_at.slice(0, 10),
-        summary: document.summary, topic: document.topic, themes: document.themes,
-        story_form: document.story_form, event_type: document.event_type, similarity: score,
+      const evidence = lastSearchResults.slice(0, 20).map(({ document, score, eventCluster }: { document: SearchResultItem["document"]; score: number; eventCluster: OntologyEvent | null }) => ({
+        title: titleParts(document.title, document.url).text,
+        url: document.url,
+        archived_on: document.fetched_at.slice(0, 10),
+        first_seen: (document.first_seen ?? document.fetched_at).slice(0, 10),
+        surfaces: document.surfaces,
+        front_page_captures: document.front_page_captures ?? 0,
+        most_read_captures: document.most_read_captures ?? 0,
+        best_front_page: document.best_front_page ?? null,
+        best_most_read: document.best_most_read ?? null,
+        event_cluster: eventCluster?.label ?? "",
+        summary: document.summary,
+        topic: document.topic,
+        themes: document.themes,
+        story_form: document.story_form,
+        event_type: document.event_type,
+        similarity: score,
       }));
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 180_000);
       try {
-        const value = await requestResearch(query, evidence, controller.signal);
+        const value = await requestResearch(query, evidence, lastOntologyContext, controller.signal);
         if (askId !== requestId) return;
         const findings = value.findings?.length
           ? `<h3>Findings</h3><ol class="answer-findings">${value.findings.map((finding) => `<li><span>${escape(finding.claim)}</span><span class="citations">${sourceLinks(finding.sources)}</span></li>`).join("")}</ol>`
@@ -256,7 +384,7 @@ import Layout from "../layouts/Layout.astro";
         panel.innerHTML = `<div class="answer-head"><h2>Cited answer</h2><p>${escape(value.model)} · ${reasoningLabel(value.reasoning ?? depth)}${value.cached ? " · cached" : cost}</p></div>
           <p class="answer-copy">${citedText(value.answer)}</p>${findings}
           ${value.limitations ? `<p class="answer-limit"><strong>Limits.</strong> ${citedText(value.limitations)}</p>` : ""}
-          <p class="source-note">Generated from the numbered sources below and can be wrong. Check each claim against its source. Model reasoning is neither stored nor shown.</p>`;
+          <p class="source-note">Generated from the numbered sources and matched archive concepts below, and can be wrong. Check each claim against its cited source. Model reasoning is neither stored nor shown.</p>`;
       } catch (error) {
         if (askId !== requestId) return;
         const message = error instanceof DOMException && error.name === "AbortError" ? "The answer service did not respond within three minutes." : error instanceof Error ? error.message : "The answer service is unavailable.";
@@ -295,7 +423,9 @@ import Layout from "../layouts/Layout.astro";
         element("#search-summary").textContent = "The story index loaded, but the query model did not, so searches use keyword matching.";
         if (pendingSearch) submitSemanticSearch(askAfterSearch);
       }
-      if (message.type === "search-results" && message.requestId === requestId) renderSearchResults(message.results, message.mode);
+      if (message.type === "search-results" && message.requestId === requestId) {
+        renderSearchResults(message.results, message.mode, message.ontologyContext ?? null);
+      }
       if (message.type === "fatal-error") { setModelState("Unavailable", "error"); element("#search-summary").textContent = message.message; }
       if (message.type === "search-error" && message.requestId === requestId) { element("#search-summary").textContent = message.message; element("#semantic-results").innerHTML = `<li class="empty">The search could not be completed. Try again.</li>`; }
     }

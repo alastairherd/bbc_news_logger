@@ -188,3 +188,107 @@ test("collection check dispatches the alert workflow only when captures are stal
   assert.deepEqual(JSON.parse(stale.calls[1].init.body), { ref: "main" });
   await assert.rejects(checkCollection("token-value", async () => new Response("", { status: 503 }), NOW), /HTTP 503/);
 });
+
+test("normalization bounds ontology records and validates ontology citations", () => {
+  const normalized = normalizeRequest({
+    query: "How often is UK politics promoted to Most Read?",
+    evidence: [
+      {
+        ...row,
+        first_seen: "2026-06-30",
+        surfaces: ["front_page", "most_read", "invalid"],
+        front_page_captures: 6,
+        most_read_captures: 4,
+        best_front_page: 1,
+        best_most_read: 3,
+        event_cluster: "Autumn Budget",
+      },
+    ],
+    ontology: {
+      themes: [
+        {
+          name: "UK politics",
+          stories: 420,
+          front_page_stories: 310,
+          most_read_stories: 240,
+          promotion: {
+            settled_stories: 380,
+            promoted_only: 120,
+            read_only: 60,
+            both: 200,
+            reach_rate: 62.5,
+            unpromoted_share: 23.1,
+            median_lag_minutes: 95,
+          },
+        },
+      ],
+      entities: [
+        {
+          name: "Keir Starmer",
+          stories: 290,
+          front_page_stories: 220,
+          most_read_stories: 170,
+          top_themes: ["UK politics"],
+        },
+      ],
+      events: [
+        {
+          cluster_id: "event-123",
+          label: "Autumn Budget",
+          event_type: "policy_change",
+          themes: ["UK politics"],
+          first_seen: "2026-06-01",
+          last_seen: "2026-07-01",
+          article_count: 14,
+        },
+      ],
+    },
+  });
+
+  assert.equal(normalized.evidence[0].first_seen, "2026-06-30");
+  assert.deepEqual(normalized.evidence[0].surfaces, ["front_page", "most_read"]);
+  assert.equal(normalized.evidence[0].front_page_captures, 6);
+  assert.equal(normalized.evidence[0].most_read_captures, 4);
+  assert.equal(normalized.evidence[0].best_front_page, 1);
+  assert.equal(normalized.evidence[0].best_most_read, 3);
+  assert.equal(normalized.evidence[0].event_cluster, "Autumn Budget");
+  assert.equal(normalized.ontology.themes[0].id, "T1");
+  assert.equal(normalized.ontology.entities[0].id, "E1");
+  assert.equal(normalized.ontology.events[0].id, "R1");
+
+  const completion = {
+    choices: [
+      {
+        message: {
+          content: JSON.stringify({
+            answer: "UK politics stories reached Most Read 62.5% of the time [T1], including the latest summit [1] [T9].",
+            findings: [
+              { claim: "62.5% reach rate across settled paired stories.", sources: ["T1", "T9"] },
+              { claim: "Keir Starmer featured in 290 stories.", sources: ["[E1]", 1] },
+              { claim: "Hallucinated ontology citation only.", sources: ["R9"] },
+            ],
+            limitations: "Sample of 1 article plus archive theme summary.",
+          }),
+        },
+      },
+    ],
+    usage: { prompt_tokens: 200, prompt_cache_miss_tokens: 200, completion_tokens: 40 },
+  };
+
+  const parsed = parseCompletion(
+    completion,
+    1,
+    "off",
+    new Date("2026-10-31T12:00:00Z"),
+    normalized.ontology,
+  );
+  assert.equal(
+    parsed.answer,
+    "UK politics stories reached Most Read 62.5% of the time [T1], including the latest summit [1] .",
+  );
+  assert.deepEqual(parsed.findings, [
+    { claim: "62.5% reach rate across settled paired stories.", sources: ["T1"] },
+    { claim: "Keir Starmer featured in 290 stories.", sources: [1, "E1"] },
+  ]);
+});
+
