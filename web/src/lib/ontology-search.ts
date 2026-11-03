@@ -142,9 +142,13 @@ const STOP_WORDS = new Set([
   "an",
   "and",
   "any",
+  "archive",
   "are",
+  "article",
+  "articles",
   "as",
   "at",
+  "bbc",
   "be",
   "been",
   "before",
@@ -153,21 +157,28 @@ const STOP_WORDS = new Set([
   "by",
   "can",
   "could",
+  "coverage",
+  "covered",
   "did",
   "do",
   "does",
   "during",
   "for",
   "from",
+  "front",
   "had",
   "has",
   "have",
+  "headline",
+  "headlines",
   "how",
   "in",
   "into",
   "is",
   "it",
   "its",
+  "list",
+  "lists",
   "many",
   "more",
   "most",
@@ -177,9 +188,12 @@ const STOP_WORDS = new Set([
   "on",
   "or",
   "over",
+  "page",
+  "read",
   "report",
   "reported",
   "reports",
+  "roundup",
   "said",
   "since",
   "so",
@@ -539,7 +553,17 @@ export function rankSearchDocuments(options: {
 } {
   const { query, documents, filters, lookup, semanticScoreAt, limit = 20 } = options;
   const resolved = resolveQueryConcepts(query, lookup);
-  const resolvedThemeNames = new Set(resolved.themes.map((theme) => theme.name.toLowerCase()));
+  const resolvedThemeByDocTheme = new Map<string, string>();
+  for (const theme of resolved.themes) {
+    const canonLower = theme.name.toLowerCase();
+    resolvedThemeByDocTheme.set(canonLower, canonLower);
+    for (const alias of theme.aliases ?? []) {
+      const aliasLower = alias.toLowerCase();
+      if (!resolvedThemeByDocTheme.has(aliasLower)) {
+        resolvedThemeByDocTheme.set(aliasLower, canonLower);
+      }
+    }
+  }
   const resolvedEntityNames = new Set(resolved.entities.map((entity) => entity.name.toLowerCase()));
   const resolvedEventIds = new Set(resolved.events.map((event) => event.cluster_id));
 
@@ -564,13 +588,18 @@ export function rankSearchDocuments(options: {
 
     let matchedAnyConcept = false;
     const matchedSignals: string[] = [];
+    const seenDocThemeCanon = new Set<string>();
 
     for (let t = 0; t < document.themes.length; t += 1) {
       const lower = docThemesLower[t];
-      if (resolvedThemeNames.has(lower)) {
+      const matchedCanon = resolvedThemeByDocTheme.get(lower);
+      if (matchedCanon) {
         matchedAnyConcept = true;
         matchedSignals.push(`Theme: ${document.themes[t]}`);
-        themeFilterCounts.set(lower, (themeFilterCounts.get(lower) ?? 0) + 1);
+        if (!seenDocThemeCanon.has(matchedCanon)) {
+          seenDocThemeCanon.add(matchedCanon);
+          themeFilterCounts.set(matchedCanon, (themeFilterCounts.get(matchedCanon) ?? 0) + 1);
+        }
       }
     }
 

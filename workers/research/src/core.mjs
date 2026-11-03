@@ -3,7 +3,7 @@ const MAX_EVIDENCE = 20;
 const MAX_ONTOLOGY_ITEMS = 5;
 // With thinking enabled the allowance also covers the model's reasoning, which at max effort can
 // run to several thousand tokens before the JSON answer starts.
-const OUTPUT_TOKENS = { off: 900, max: 16_000 };
+const OUTPUT_TOKENS = { off: 2_400, max: 16_000 };
 const REASONING_MODES = Object.keys(OUTPUT_TOKENS);
 // Earlier clients sent "high" for Reasoned; it now means the same max-effort mode.
 const REASONING_ALIASES = { high: "max" };

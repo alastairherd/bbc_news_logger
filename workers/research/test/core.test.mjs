@@ -35,7 +35,7 @@ test("DeepSeek request defaults to bounded non-thinking mode", () => {
   const body = deepSeekRequest("What changed?", [{ ...row, id: 1 }]);
   assert.equal(body.model, "deepseek-flash");
   assert.deepEqual(body.thinking, { type: "disabled" });
-  assert.equal(body.max_tokens, 900);
+  assert.equal(body.max_tokens, 2400);
   assert.match(body.messages[0].content, /Never turn correlation, allegation, or concern into proven causation/);
 });
 

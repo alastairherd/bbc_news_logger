@@ -8,7 +8,7 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:4321",
   "http://127.0.0.1:4321",
 ]);
-const PROMPT_VERSION = "2026-11-03-v4";
+const PROMPT_VERSION = "2026-11-03-v5";
 const requestsByClient = new Map();
 const DEFAULT_DAILY_BUDGET_USD = 0.5;
 const BUDGET_EXHAUSTED = "Today's shared answer budget has been used. Answers resume after midnight UTC.";
