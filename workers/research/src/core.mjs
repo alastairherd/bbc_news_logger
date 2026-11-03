@@ -3,7 +3,7 @@ const MAX_EVIDENCE = 20;
 const MAX_ONTOLOGY_ITEMS = 5;
 // With thinking enabled the allowance also covers the model's reasoning, which at max effort can
 // run to several thousand tokens before the JSON answer starts.
-const OUTPUT_TOKENS = { off: 2_400, max: 16_000 };
+const OUTPUT_TOKENS = { off: 384_000, max: 384_000 };
 const REASONING_MODES = Object.keys(OUTPUT_TOKENS);
 // Earlier clients sent "high" for Reasoned; it now means the same max-effort mode.
 const REASONING_ALIASES = { high: "max" };
@@ -21,14 +21,16 @@ const INPUT_CACHE_MISS_PRICE = 0.15;
 const OUTPUT_PRICE = 0.6;
 const PEAK_HOURS_UTC = [[1, 4], [6, 10]];
 
-// Chat framing beyond the counted message bytes.
+//Chat framing beyond the counted message bytes.
 const REQUEST_OVERHEAD_TOKENS = 1_024;
+const RESERVED_OUTPUT_TOKENS_CAP = 16_000;
 
-// Upper bound on one request's cost, reserved before it is sent. Tokenizers emit no more tokens
-// than the UTF-8 bytes they read, and the bound assumes peak pricing with no cache hits.
+// Upper bound on one request's practical cost, reserved before it is sent. Tokenizers emit no more
+// tokens than the UTF-8 bytes they read, and the bound assumes peak pricing with no cache hits.
 export function maximumRequestCostUsd(request) {
   const inputTokens = new TextEncoder().encode(JSON.stringify(request.messages)).length + REQUEST_OVERHEAD_TOKENS;
-  return 2 * (inputTokens * INPUT_CACHE_MISS_PRICE + request.max_tokens * OUTPUT_PRICE) / 1_000_000;
+  const reservedOutputTokens = Math.min(Number(request.max_tokens) || 0, RESERVED_OUTPUT_TOKENS_CAP);
+  return 2 * (inputTokens * INPUT_CACHE_MISS_PRICE + reservedOutputTokens * OUTPUT_PRICE) / 1_000_000;
 }
 
 // Ledger steps are pure so the Durable Object that stores them stays a thin wrapper.

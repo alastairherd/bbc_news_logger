@@ -35,7 +35,7 @@ test("DeepSeek request defaults to bounded non-thinking mode", () => {
   const body = deepSeekRequest("What changed?", [{ ...row, id: 1 }]);
   assert.equal(body.model, "deepseek-flash");
   assert.deepEqual(body.thinking, { type: "disabled" });
-  assert.equal(body.max_tokens, 2400);
+  assert.equal(body.max_tokens, 384_000);
   assert.match(body.messages[0].content, /Never turn correlation, allegation, or concern into proven causation/);
 });
 
@@ -43,7 +43,7 @@ test("Reasoned answers use max effort with room for the reasoning", () => {
   const reasoned = deepSeekRequest("What changed?", [{ ...row, id: 1 }], "max");
   assert.deepEqual(reasoned.thinking, { type: "enabled" });
   assert.equal(reasoned.reasoning_effort, "max");
-  assert.equal(reasoned.max_tokens, 16_000);
+  assert.equal(reasoned.max_tokens, 384_000);
   // Earlier clients sent "high" for Reasoned; unknown modes fall back to Fast.
   assert.equal(normalizeRequest({ query: "What changed?", evidence: [row], reasoning: "high" }).reasoning, "max");
   assert.equal(normalizeRequest({ query: "What changed?", evidence: [row], reasoning: "deep" }).reasoning, "off");
@@ -124,14 +124,14 @@ test("scheduled collection reports missing tokens and GitHub errors", async () =
   await assert.rejects(dispatchCollection("token-value", denied), /HTTP 401: Bad credentials/);
 });
 
-test("the reserved cost bounds the billed cost of the largest request", () => {
+test("the reserved cost bounds the billed cost of a 16k-token request", () => {
   const evidence = Array.from({ length: 20 }, (_, index) => ({ ...row, id: index + 1, summary: "x".repeat(1200) }));
   const request = deepSeekRequest("q".repeat(400), evidence, "max", normalizeRequest({ query: "q".repeat(400), evidence: [row] }).archive);
   const reserved = maximumRequestCostUsd(request);
   const promptBytes = new TextEncoder().encode(JSON.stringify(request.messages)).length;
   const billed = parseCompletion({
     choices: [{ message: { content: JSON.stringify({ answer: "A [1].", findings: [], limitations: "" }) } }],
-    usage: { prompt_tokens: promptBytes, prompt_cache_miss_tokens: promptBytes, completion_tokens: request.max_tokens },
+    usage: { prompt_tokens: promptBytes, prompt_cache_miss_tokens: promptBytes, completion_tokens: 16_000 },
   }, 20, "max", new Date("2026-10-28T02:00:00Z")).usage.costUsd;
   assert.ok(reserved >= billed);
   assert.ok(reserved < 0.05);
