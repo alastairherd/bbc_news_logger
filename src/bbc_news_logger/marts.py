@@ -419,6 +419,25 @@ def _story_themes(
     }
 
 
+def _story_topics(
+    article_by_hash: dict[str, dict[str, object]],
+    signal_by_hash: dict[str, dict[str, object]],
+) -> dict[str, str]:
+    """Primary topic of each story's most recently fetched labelled version."""
+
+    latest: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
+    for content_hash in article_by_hash.keys() & signal_by_hash.keys():
+        article = article_by_hash[content_hash]
+        story_id = str(article["story_id"])
+        existing = latest.get(story_id)
+        if existing is None or article["fetched_at"] > existing[0]["fetched_at"]:
+            latest[story_id] = (article, signal_by_hash[content_hash])
+    return {
+        story_id: str(signal.get("topic") or "other")
+        for story_id, (_, signal) in latest.items()
+    }
+
+
 ONTOLOGY_MIN_STORIES = 5
 ONTOLOGY_MAX_ENTITIES = 400
 
@@ -542,6 +561,8 @@ def _semantic_ontology(
     themes_out: list[dict[str, object]] = []
     sorted_themes = sorted(theme_stories.items(), key=lambda item: (-len(item[1]), item[0]))
     for name, story_ids in sorted_themes:
+        if len(story_ids) < ONTOLOGY_MIN_STORIES:
+            continue
         top_topic = theme_topics[name].most_common(1)[0][0] if theme_topics[name] else "other"
         parent_theme = tax_lookup.get(name.casefold()) or heuristic_parent_theme(name, top_topic)
         parent_stories[parent_theme].update(story_ids)
@@ -552,8 +573,6 @@ def _semantic_ontology(
             if "most_read" in surfaces:
                 parent_read[parent_theme].add(s_id)
 
-        if len(story_ids) < ONTOLOGY_MIN_STORIES:
-            continue
         parent_children[parent_theme].append((name, len(story_ids)))
         promo = promo_by_theme.get(name.casefold())
         promotion_payload = (
@@ -706,6 +725,12 @@ def _semantic_payloads(
     wikidata: pa.Table | None = None,
 ) -> tuple[dict[str, object], bytes, dict[str, object]]:
     tax_lookup = _taxonomy_lookup(taxonomy)
+    active_theme_counts: Counter[str] = Counter()
+    for content_hash, signal in signal_by_hash.items():
+        if content_hash in article_by_hash:
+            for raw_theme in set(signal.get("themes") or []):
+                active_theme_counts[str(raw_theme).casefold()] += 1
+
     counts: Counter[tuple[str, str, str]] = Counter()
     for content_hash, signal in signal_by_hash.items():
         article = article_by_hash.get(content_hash)
@@ -720,8 +745,12 @@ def _semantic_payloads(
         for raw_theme in signal.get("themes") or []:
             theme = str(raw_theme)
             counts[(day, "theme", theme)] += 1
-            parent = tax_lookup.get(theme.casefold()) or heuristic_parent_theme(theme, topic)
-            parents_seen.add(parent)
+            key = theme.casefold()
+            parent = tax_lookup.get(key)
+            if parent is None and active_theme_counts[key] >= ONTOLOGY_MIN_STORIES:
+                parent = heuristic_parent_theme(theme, topic)
+            if parent:
+                parents_seen.add(parent)
         for parent in parents_seen:
             counts[(day, "parent_theme", parent)] += 1
     trends = [
@@ -811,7 +840,7 @@ def _semantic_payloads(
         promotion_parent_themes=promotion_parent_themes or [],
         theme_aliases=theme_aliases or {},
         entity_aliases=entity_aliases or {},
-        taxonomy_by_theme=_taxonomy_lookup(taxonomy),
+        taxonomy_by_theme=tax_lookup,
         wikidata_by_entity=_wikidata_lookup(wikidata),
     )
     article_count = len(article_by_hash)
@@ -881,6 +910,7 @@ def _promotion_attention(
     con: duckdb.DuckDBPyConnection,
     story_themes: dict[str, list[str]],
     taxonomy_by_theme: dict[str, str] | None = None,
+    story_topics: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Compare front-page promotion with Most Read attention, story by story."""
 
@@ -966,15 +996,27 @@ def _promotion_attention(
         )
 
     tax_lookup = taxonomy_by_theme or {}
+    topics_lookup = story_topics or {}
+    theme_totals: Counter[str] = Counter()
+    for themes_list in story_themes.values():
+        for th in set(themes_list):
+            theme_totals[th.casefold()] += 1
+
     by_theme: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
     by_parent: defaultdict[str, list[dict[str, object]]] = defaultdict(list)
     for row in rows:
-        s_themes = set(story_themes.get(str(row["story_id"]), ()))
+        story_id_str = str(row["story_id"])
+        s_themes = set(story_themes.get(story_id_str, ()))
+        s_topic = topics_lookup.get(story_id_str, "other")
         s_parents: set[str] = set()
         for theme in s_themes:
             by_theme[theme].append(row)
-            parent = tax_lookup.get(theme.casefold()) or heuristic_parent_theme(theme)
-            s_parents.add(parent)
+            key = theme.casefold()
+            parent = tax_lookup.get(key)
+            if parent:
+                s_parents.add(parent)
+            elif theme_totals[key] >= ONTOLOGY_MIN_STORIES:
+                s_parents.add(heuristic_parent_theme(theme, s_topic))
         for parent in s_parents:
             by_parent[parent].append(row)
     themes = []
@@ -1173,7 +1215,10 @@ def build_marts(
     )
     tax_lookup = _taxonomy_lookup(taxonomy)
     promotion_attention = _promotion_attention(
-        con, _story_themes(article_by_hash, signal_by_hash), tax_lookup
+        con,
+        _story_themes(article_by_hash, signal_by_hash),
+        tax_lookup,
+        _story_topics(article_by_hash, signal_by_hash),
     )
     semantic_payloads, semantic_vectors, semantic_manifest = _semantic_payloads(
         article_by_hash=article_by_hash,
