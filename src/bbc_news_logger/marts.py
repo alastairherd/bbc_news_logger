@@ -159,6 +159,7 @@ def _semantic_index(
     embeddings: pa.Table | None,
     story_stats: dict[str, dict[str, object]],
     story_cluster_index: dict[str, int] | None = None,
+    story_cluster_id: dict[str, str] | None = None,
 ) -> tuple[dict[str, object], bytes]:
     embedding_by_hash = _latest_rows(embeddings, "generated_at")
     latest_by_story: dict[str, tuple[dict[str, object], dict[str, object]]] = {}
@@ -174,6 +175,7 @@ def _semantic_index(
     model = "BAAI/bge-small-en-v1.5"
     dimensions = 384
     cluster_lookup = story_cluster_index or {}
+    cluster_id_lookup = story_cluster_id or {}
     for story_id, (article, embedding) in sorted(latest_by_story.items()):
         values = [float(value) for value in embedding.get("embedding") or []]
         if not values:
@@ -206,6 +208,7 @@ def _semantic_index(
                 "best_front_page": stats.get("best_front_page"),
                 "best_most_read": stats.get("best_most_read"),
                 "cluster_index": cluster_lookup.get(story_id),
+                "cluster_id": cluster_id_lookup.get(story_id),
                 "summary": str(signal.get("summary") or ""),
                 "topic": str(signal.get("topic") or "unlabelled"),
                 "themes": list(signal.get("themes") or []),
@@ -651,9 +654,13 @@ def _semantic_payloads(
         recurring.sort(key=lambda row: (row["last_seen"], row["article_count"]), reverse=True)
 
     story_cluster_index: dict[str, int] = {}
+    story_cluster_id: dict[str, str] = {}
     for cluster_idx, cluster in enumerate(recurring):
+        cluster_id_str = str(cluster["cluster_id"])
         for article_entry in cluster.get("articles") or []:
-            story_cluster_index[str(article_entry["story_id"])] = cluster_idx
+            s_id = str(article_entry["story_id"])
+            story_cluster_index[s_id] = cluster_idx
+            story_cluster_id[s_id] = cluster_id_str
 
     findings = _semantic_findings(article_by_hash, signal_by_hash, stories, recurring)
     documents, vector_bytes = _semantic_index(
@@ -662,6 +669,7 @@ def _semantic_payloads(
         embeddings,
         story_stats,
         story_cluster_index,
+        story_cluster_id,
     )
     ontology = _semantic_ontology(
         article_by_hash=article_by_hash,

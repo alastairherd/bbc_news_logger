@@ -12,6 +12,7 @@ export interface SemanticDocument {
   best_front_page?: number | null;
   best_most_read?: number | null;
   cluster_index?: number | null;
+  cluster_id?: string | null;
   summary: string;
   topic: string;
   themes: string[];
@@ -331,13 +332,26 @@ export function resolveQueryConcepts(
     .map((word) => word.replace(/^'+|'+$/g, ""))
     .filter(Boolean);
   const lowerTokens = rawTokens.map((token) => token.toLowerCase());
+  const usedPositions = new Array<boolean>(lowerTokens.length).fill(false);
 
   const matchedThemes = new Map<string, OntologyTheme>();
   const matchedEntities = new Map<string, OntologyEntity>();
 
   // Scan N-grams from longest (4 words) to shortest (1 word) on strict token boundaries.
+  // Once a longer phrase matches, mark its token positions as consumed so sub-tokens
+  // (e.g. "reform" inside "prison reform" or "labour" inside "labour market") do not
+  // trigger unrelated 1-gram entity aliases ("Reform UK", "Labour Party").
   for (let size = Math.min(4, lowerTokens.length); size >= 1; size -= 1) {
     for (let start = 0; start <= lowerTokens.length - size; start += 1) {
+      let overlapsConsumed = false;
+      for (let pos = start; pos < start + size; pos += 1) {
+        if (usedPositions[pos]) {
+          overlapsConsumed = true;
+          break;
+        }
+      }
+      if (overlapsConsumed) continue;
+
       const gram = lowerTokens.slice(start, start + size).join(" ");
       const rawGram = rawTokens.slice(start, start + size).join(" ");
       if (size === 1) {
@@ -359,14 +373,37 @@ export function resolveQueryConcepts(
         }
       }
 
-      const theme = lookup.themeByAlias.get(gram);
-      if (theme && !matchedThemes.has(theme.name)) {
-        matchedThemes.set(theme.name, theme);
-      }
       const entity = lookup.entityByAlias.get(gram);
+      const theme = lookup.themeByAlias.get(gram);
+      if (!entity && !theme) continue;
+
+      for (let pos = start; pos < start + size; pos += 1) {
+        usedPositions[pos] = true;
+      }
+
       if (entity && !matchedEntities.has(entity.name)) {
         matchedEntities.set(entity.name, entity);
       }
+      // If both an entity and a theme have the exact same normalized name (e.g. "Strait of Hormuz"
+      // or "Donald Trump"), keep the entity record unless the theme carries settled promotion stats.
+      if (theme && !matchedThemes.has(theme.name)) {
+        const sameNamedEntity =
+          entity && normalizePhrase(entity.name) === normalizePhrase(theme.name);
+        if (!sameNamedEntity || theme.promotion !== null) {
+          matchedThemes.set(theme.name, theme);
+        }
+      }
+    }
+  }
+
+  // Final pass: if a theme has the same normalized name as any matched entity and lacks
+  // settled promotion stats, drop the duplicate theme chip.
+  const entityNormNames = new Set(
+    [...matchedEntities.values()].map((entity) => normalizePhrase(entity.name)),
+  );
+  for (const [themeName, theme] of [...matchedThemes.entries()]) {
+    if (entityNormNames.has(normalizePhrase(themeName)) && theme.promotion === null) {
+      matchedThemes.delete(themeName);
     }
   }
 
@@ -491,10 +528,11 @@ export function rankSearchDocuments(options: {
       }
     }
 
-    const eventCluster =
-      typeof document.cluster_index === "number" &&
-      document.cluster_index >= 0 &&
-      document.cluster_index < lookup.ontology.events.length
+    const eventCluster = document.cluster_id
+      ? (lookup.eventById.get(document.cluster_id) ?? null)
+      : typeof document.cluster_index === "number" &&
+          document.cluster_index >= 0 &&
+          document.cluster_index < lookup.ontology.events.length
         ? lookup.ontology.events[document.cluster_index]
         : null;
 

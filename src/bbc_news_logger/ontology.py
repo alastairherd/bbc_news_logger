@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-ONTOLOGY_VERSION = "2026-11-v1"
+ONTOLOGY_VERSION = "2026-11-v2"
 
 CORE_EVENT_TYPES = frozenset(
     {
@@ -148,6 +148,7 @@ PROPER_PHRASE_CASE: dict[str, str] = {
     "northern ireland": "Northern Ireland",
     "london": "London",
     "middle east": "Middle East",
+    "strait of hormuz": "Strait of Hormuz",
     "world cup": "World Cup",
     "premier league": "Premier League",
     "champions league": "Champions League",
@@ -201,7 +202,6 @@ THEME_ALIASES: dict[str, str] = {
     "memorials": "tribute",
     "wildfires": "wildfire",
     "floods": "flooding",
-    "Severe weather": "extreme weather",
     "severe weather": "extreme weather",
     "weather warning": "weather warnings",
     "train cancellations": "rail disruption",
@@ -211,10 +211,8 @@ THEME_ALIASES: dict[str, str] = {
     "court hearing": "court case",
     "legal proceedings": "court case",
     "legal case": "court case",
-    "criminal trial": "murder trial",
     "peace negotiations": "peace talks",
     "ceasefire talks": "ceasefire negotiations",
-    "hostage release": "hostage crisis",
     "israeli-palestinian conflict": "Israel-Gaza war",
     "israel-hamas conflict": "Israel-Gaza war",
     "israel-gaza conflict": "Israel-Gaza war",
@@ -288,7 +286,8 @@ THE_STRIP_ALLOWLIST = frozenset(
     }
 )
 
-# Non-royal titles stripped when followed by a full personal name (at least two words).
+# Non-royal titles stripped when followed by a full personal name (at least two words)
+# and not an institutional/territorial phrase ("of ...", "vs ...").
 STRIPPABLE_TITLES = (
     "Prime Minister ",
     "President ",
@@ -304,7 +303,6 @@ STRIPPABLE_TITLES = (
     "Mayor ",
     "Pope ",
     "Archbishop ",
-    "General ",
     "Admiral ",
     "Colonel ",
     "Chief Constable ",
@@ -318,6 +316,12 @@ STRIPPABLE_TITLES = (
     "Mrs ",
     "Ms ",
     "Miss ",
+)
+
+_NON_PERSON_TITLE_REMAINDER = re.compile(
+    r"^(?:of|in|for|at|to|vs\.?|versus|and|the)\b"
+    r"|\b(?:council|assembly|synod|election|strike|strikes|court|office|committee|commission|board|post\s+office)\b",
+    flags=re.IGNORECASE,
 )
 
 ENTITY_ALIASES: dict[str, str] = {
@@ -381,6 +385,8 @@ ENTITY_ALIASES: dict[str, str] = {
     "white house": "White House",
     "us supreme court": "US Supreme Court",
     "uk supreme court": "Supreme Court",
+    "guardian": "The Guardian",
+    "the guardian": "The Guardian",
     "labour": "Labour Party",
     "labour party": "Labour Party",
     "conservatives": "Conservative Party",
@@ -431,7 +437,7 @@ ENTITY_ALIASES: dict[str, str] = {
     "keithink": "Keir Starmer",
     "lord mandelson": "Peter Mandelson",
     "peter mandelson": "Peter Mandelson",
-    "baroness Cumberlege": "Julia Cumberlege",
+    "baroness cumberlege": "Julia Cumberlege",
     "king charles": "King Charles III",
     "king charles iii": "King Charles III",
     "queen camilla": "Queen Camilla",
@@ -444,6 +450,7 @@ ENTITY_ALIASES: dict[str, str] = {
     "prince andrew": "Andrew Mountbatten-Windsor",
     "duke of york": "Andrew Mountbatten-Windsor",
     "andrew mountbatten-windsor": "Andrew Mountbatten-Windsor",
+    "andrew mountbatten windsor": "Andrew Mountbatten-Windsor",
     "vladimir putin": "Vladimir Putin",
     "president putin": "Vladimir Putin",
     "volodymyr zelensky": "Volodymyr Zelensky",
@@ -473,6 +480,7 @@ ENTITY_ALIASES: dict[str, str] = {
 }
 
 _WHITESPACE = re.compile(r"\s+")
+_HYPHEN_OR_SPACE = re.compile(r"[\s_-]+")
 _WORD_BOUNDARY_PHRASES = tuple(
     sorted(
         (
@@ -487,6 +495,38 @@ _WORD_BOUNDARY_PHRASES = tuple(
 def _clean_space(value: object) -> str:
     text = str(value or "").replace("_", " ").strip()
     return _WHITESPACE.sub(" ", text)
+
+
+def _structural_key(value: str) -> str:
+    return _HYPHEN_OR_SPACE.sub(" ", value.strip()).casefold()
+
+
+_NON_PLURAL_ENDINGS = (
+    "ss",
+    "us",
+    "is",
+    "os",
+    "news",
+    "politics",
+    "olympics",
+    "economics",
+    "mathematics",
+    "athletics",
+    "diabetes",
+    "measles",
+    "wales",
+    "christmas",
+)
+
+
+def _singular_candidate(key: str) -> str | None:
+    if len(key) <= 4:
+        return None
+    if key.endswith("ies") and len(key) > 5:
+        return f"{key[:-3]}y"
+    if key.endswith("s") and not key.endswith(_NON_PLURAL_ENDINGS):
+        return key[:-1]
+    return None
 
 
 def normalize_event_type(value: object) -> str:
@@ -537,7 +577,7 @@ def normalize_themes(values: Iterable[object] | None, *, maximum: int = 5) -> li
     seen: set[str] = set()
     for raw in values:
         theme = normalize_theme(raw)
-        key = theme.casefold()
+        key = _structural_key(theme)
         if not theme or key in seen:
             continue
         seen.add(key)
@@ -554,7 +594,11 @@ def normalize_entity(value: object) -> str:
     if not cleaned:
         return ""
     if cleaned.endswith("'s") or cleaned.endswith("\u2019s"):
-        cleaned = cleaned[:-2].strip()
+        stem = cleaned[:-2].strip()
+        # Keep brand/chain names whose standard surface form is a single-word possessive
+        # unless it is a known person alias.
+        if " " in stem or stem.casefold() in ENTITY_ALIASES:
+            cleaned = stem
     folded = cleaned.casefold()
     if folded in ENTITY_ALIASES:
         return ENTITY_ALIASES[folded]
@@ -572,8 +616,9 @@ def normalize_entity(value: object) -> str:
         if cleaned.lower().startswith(prefix.lower()):
             remainder = cleaned[len(prefix) :].strip()
             # Only strip a title when followed by a multi-word personal name
-            # (e.g. "Sir Keir Starmer").
-            if len(remainder.split()) >= 2:
+            # (e.g. "Sir Keir Starmer") and not a territorial/institutional title
+            # (e.g. "Archbishop of Canterbury", "Mayor of Paris", "Mr Bates vs The Post Office").
+            if len(remainder.split()) >= 2 and not _NON_PERSON_TITLE_REMAINDER.search(remainder):
                 cleaned = remainder
                 folded = cleaned.casefold()
                 if folded in ENTITY_ALIASES:
@@ -596,7 +641,7 @@ def normalize_entities(values: Iterable[object] | None, *, maximum: int = 8) -> 
     seen: set[str] = set()
     for raw in values:
         entity = normalize_entity(raw)
-        key = entity.casefold()
+        key = _structural_key(entity)
         if not entity or key in seen:
             continue
         seen.add(key)
@@ -634,18 +679,16 @@ def reconcile_signal_rows(
         for raw in raw_themes:
             norm = normalize_theme(raw)
             if norm:
-                key = norm.casefold()
+                key = _structural_key(norm)
                 theme_form_counts[key][norm] += 1
-                if raw.casefold() != key or raw != norm:
-                    raw_theme_variants[key].add(raw)
+                raw_theme_variants[key].add(raw)
 
         for raw in raw_entities:
             norm = normalize_entity(raw)
             if norm:
-                key = norm.casefold()
+                key = _structural_key(norm)
                 entity_form_counts[key][norm] += 1
-                if raw.casefold() != key or raw != norm:
-                    raw_entity_variants[key].add(raw)
+                raw_entity_variants[key].add(raw)
 
         updated = dict(row)
         updated["themes"] = norm_themes
@@ -653,47 +696,85 @@ def reconcile_signal_rows(
         updated["event_type"] = normalize_event_type(row.get("event_type"))
         intermediate[content_hash] = updated
 
-    # Deterministic tie-breaking: highest frequency first, then lexical sort on surface form.
-    canonical_theme_by_key: dict[str, str] = {
-        key: min(counter.items(), key=lambda item: (-item[1], item[0]))[0]
-        for key, counter in theme_form_counts.items()
-    }
+    # Merge plural theme keys into their singular structural key when both exist in the corpus.
+    theme_key_remap: dict[str, str] = {}
+    for key in list(theme_form_counts.keys()):
+        singular = _singular_candidate(key)
+        if singular and singular in theme_form_counts:
+            theme_key_remap[key] = singular
+
+    for plural_key, singular_key in theme_key_remap.items():
+        theme_form_counts[singular_key].update(theme_form_counts.pop(plural_key))
+        raw_theme_variants[singular_key].update(raw_theme_variants.pop(plural_key, set()))
+
     canonical_entity_by_key: dict[str, str] = {
         key: min(counter.items(), key=lambda item: (-item[1], item[0]))[0]
         for key, counter in entity_form_counts.items()
     }
 
+    # Deterministic tie-breaking: highest frequency first, then lexical sort on surface form.
+    # When a theme's structural key matches a canonical entity, prefer the entity's capitalisation.
+    canonical_theme_by_key: dict[str, str] = {}
+    for key, counter in theme_form_counts.items():
+        winner = min(counter.items(), key=lambda item: (-item[1], item[0]))[0]
+        entity_winner = canonical_entity_by_key.get(key)
+        if entity_winner and winner.casefold() == entity_winner.casefold():
+            winner = entity_winner
+        canonical_theme_by_key[key] = winner
+
+    def resolve_theme_key(theme: str) -> str:
+        s_key = _structural_key(theme)
+        return theme_key_remap.get(s_key, s_key)
+
     reconciled: dict[str, dict[str, Any]] = {}
     for content_hash, row in intermediate.items():
-        row["themes"] = [
-            canonical_theme_by_key.get(theme.casefold(), theme) for theme in row["themes"]
-        ]
-        row["named_entities"] = [
-            canonical_entity_by_key.get(entity.casefold(), entity)
-            for entity in row["named_entities"]
-        ]
+        dedup_themes: list[str] = []
+        seen_themes: set[str] = set()
+        for theme in row["themes"]:
+            t_key = resolve_theme_key(theme)
+            canon = canonical_theme_by_key.get(t_key, theme)
+            if canon.casefold() not in seen_themes:
+                seen_themes.add(canon.casefold())
+                dedup_themes.append(canon)
+        row["themes"] = dedup_themes
+
+        dedup_entities: list[str] = []
+        seen_entities: set[str] = set()
+        for entity in row["named_entities"]:
+            e_key = _structural_key(entity)
+            canon = canonical_entity_by_key.get(e_key, entity)
+            if canon.casefold() not in seen_entities:
+                seen_entities.add(canon.casefold())
+                dedup_entities.append(canon)
+        row["named_entities"] = dedup_entities
         reconciled[content_hash] = row
 
-    theme_aliases: dict[str, list[str]] = {}
-    for key, canonical in canonical_theme_by_key.items():
-        variants = sorted(
-            {
-                variant
-                for variant in raw_theme_variants.get(key, set())
-                if variant != canonical
-            }
+    def distinct_aliases(variants: set[str], canonical: str) -> list[str]:
+        canon_norm = _structural_key(canonical)
+        by_norm: dict[str, str] = {}
+        for variant in sorted(variants):
+            if variant.casefold() == canonical.casefold():
+                continue
+            # Keep distinct surface phrases (or plural/hyphen variants), one per normalized phrase.
+            dedup_token = variant.replace("_", " ").strip().casefold()
+            if dedup_token == canonical.casefold():
+                continue
+            if dedup_token not in by_norm:
+                by_norm[dedup_token] = variant
+        # Prefer aliases whose words differ from canonical before hyphen/plural variants.
+        ordered = sorted(
+            by_norm.values(),
+            key=lambda item: (_structural_key(item) == canon_norm, item.casefold(), item),
         )
-        theme_aliases[canonical] = variants[:12]
+        return ordered[:12]
 
-    entity_aliases: dict[str, list[str]] = {}
-    for key, canonical in canonical_entity_by_key.items():
-        variants = sorted(
-            {
-                variant
-                for variant in raw_entity_variants.get(key, set())
-                if variant != canonical
-            }
-        )
-        entity_aliases[canonical] = variants[:12]
+    theme_aliases: dict[str, list[str]] = {
+        canonical: distinct_aliases(raw_theme_variants.get(key, set()), canonical)
+        for key, canonical in canonical_theme_by_key.items()
+    }
+    entity_aliases: dict[str, list[str]] = {
+        canonical: distinct_aliases(raw_entity_variants.get(key, set()), canonical)
+        for key, canonical in canonical_entity_by_key.items()
+    }
 
     return reconciled, theme_aliases, entity_aliases

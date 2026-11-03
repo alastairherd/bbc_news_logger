@@ -135,7 +135,7 @@ def test_build_marts_quantizes_aligned_browser_search_index(tmp_path) -> None:
     assert metadata["documents"][0]["most_read_captures"] == 0
     assert metadata["documents"][0]["best_front_page"] == 2
     assert metadata["documents"][0]["best_most_read"] is None
-    assert ontology["ontologyVersion"] == "2026-11-v1"
+    assert ontology["ontologyVersion"] == "2026-11-v2"
     assert len((tmp_path / "semantic-vectors.i8").read_bytes()) == EMBEDDING_DIMENSIONS
 
 
