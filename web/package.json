@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
+    "test": "node --experimental-strip-types --test test/*.test.mjs",
     "build": "astro check && astro build && node scripts/check-built-paths.mjs",
     "check:paths": "node scripts/check-built-paths.mjs",
     "preview": "astro preview"

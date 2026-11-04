@@ -100,8 +100,9 @@ import Layout from "../layouts/Layout.astro";
             <label for="theme-sort">Sort by</label>
             <select id="theme-sort">
               <option value="stories">Most stories</option>
-              <option value="reach">Lowest reach</option>
+              <option value="promoted_only">Most often promoted without reaching Most Read</option>
               <option value="unpromoted">Most often in Most Read without promotion</option>
+              <option value="reach_high">Highest reach to Most Read</option>
               <option value="lag">Longest delay</option>
             </select>
           </div>
@@ -122,7 +123,8 @@ import Layout from "../layouts/Layout.astro";
                 <th scope="col" id="theme-col-head">Category</th>
                 <th scope="col" class="numeric">Stories</th>
                 <th scope="col">Promoted that reached Most Read</th>
-                <th scope="col">Most Read never promoted</th>
+                <th scope="col">Promoted, never in Most Read</th>
+                <th scope="col">Most Read, never promoted</th>
                 <th scope="col" class="numeric">Median delay <span class="table-note">promoted first</span></th>
               </tr>
             </thead>
@@ -146,7 +148,8 @@ import Layout from "../layouts/Layout.astro";
                 <th scope="col" class="numeric">Captures</th>
                 <th scope="col" class="numeric">Stories</th>
                 <th scope="col" class="numeric">Promoted that reached Most Read</th>
-                <th scope="col" class="numeric">Most Read never promoted</th>
+                <th scope="col" class="numeric">Promoted, never in Most Read</th>
+                <th scope="col" class="numeric">Most Read, never promoted</th>
               </tr>
             </thead>
             <tbody id="month-table"></tbody>
@@ -192,6 +195,8 @@ import Layout from "../layouts/Layout.astro";
     const control = (selector: string): HTMLInputElement | HTMLSelectElement => { const result = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector); if (!result) throw new Error(`Missing control: ${selector}`); return result; };
     const label = (value: string) => value.replaceAll("_", " ");
     const percent = (value: number | null) => value === null ? "—" : `${value.toFixed(1)}%`;
+    const promotedOnlyShare = (row: Outcomes): number | null =>
+      row.reachRate === null ? null : Math.round((100 - row.reachRate) * 10) / 10;
     const delay = (minutes: number | null) => minutes === null ? "—" : minutes < 90 ? `${Math.round(minutes)} min` : `${(minutes / 60).toFixed(1)} h`;
     const askLink = (theme: string) => `${base}signals/?q=${encodeURIComponent(`How was ${label(theme)} covered on the front page and in Most Read?`)}`;
     const shareCell = (value: number | null, tone: "front" | "read") =>
@@ -211,7 +216,7 @@ import Layout from "../layouts/Layout.astro";
       element("#promoted-only").textContent = number.format(totals.promotedOnly);
       element("#both").textContent = number.format(totals.both);
       element("#read-only").textContent = number.format(totals.readOnly);
-      element("#reach-note").textContent = `${percent(totals.reachRate)} of promoted stories did reach Most Read.`;
+      element("#reach-note").textContent = `${percent(promotedOnlyShare(totals))} of promoted stories never reached Most Read (${percent(totals.reachRate)} did reach Most Read).`;
       element("#unpromoted-note").textContent = `${percent(totals.unpromotedShare)} of Most Read stories were never promoted.`;
     }
 
@@ -231,8 +236,9 @@ import Layout from "../layouts/Layout.astro";
       const rows = sourceRows.filter((row) => label(row.theme).toLowerCase().includes(query));
       const sorters: Record<string, (left: ThemeRow, right: ThemeRow) => number> = {
         stories: (left, right) => right.stories - left.stories,
-        reach: (left, right) => (left.reachRate ?? 101) - (right.reachRate ?? 101),
+        promoted_only: (left, right) => (promotedOnlyShare(right) ?? -1) - (promotedOnlyShare(left) ?? -1),
         unpromoted: (left, right) => (right.unpromotedShare ?? -1) - (left.unpromotedShare ?? -1),
+        reach_high: (left, right) => (right.reachRate ?? -1) - (left.reachRate ?? -1),
         lag: (left, right) => (right.medianLagMinutes ?? -1) - (left.medianLagMinutes ?? -1),
       };
       rows.sort((left, right) => sorters[sort]!(left, right) || right.stories - left.stories);
@@ -248,9 +254,10 @@ import Layout from "../layouts/Layout.astro";
         <th scope="row"><a href="${askLink(row.theme)}">${escape(label(row.theme))}</a></th>
         <td class="numeric">${number.format(row.stories)}</td>
         ${shareCell(row.reachRate, "front")}
+        ${shareCell(promotedOnlyShare(row), "front")}
         ${shareCell(row.unpromotedShare, "read")}
         <td class="numeric">${delay(row.medianLagMinutes)}${row.promotedFirst && row.promotedFirst < 10 ? ` <span class="table-note">(${row.promotedFirst})</span>` : ""}</td>
-      </tr>`).join("") || `<tr><td colspan="5" class="empty">No ${unitSingular} matches “${escape(query)}”.</td></tr>`;
+      </tr>`).join("") || `<tr><td colspan="6" class="empty">No ${unitSingular} matches “${escape(query)}”.</td></tr>`;
     }
 
     function renderMonths(months: MonthRow[]) {
@@ -259,6 +266,7 @@ import Layout from "../layouts/Layout.astro";
         <td class="numeric">${number.format(row.captures)}</td>
         <td class="numeric">${number.format(row.stories)}</td>
         <td class="numeric">${percent(row.reachRate)}</td>
+        <td class="numeric">${percent(promotedOnlyShare(row))}</td>
         <td class="numeric">${percent(row.unpromotedShare)}</td>
       </tr>`).join("");
     }

@@ -78,6 +78,7 @@ import Layout from "../layouts/Layout.astro";
 
   <script>
     import { titleParts } from "../lib/titles";
+    import { bindCitationDisclosures, createCitationRenderer, type CitationSource } from "../lib/citations";
     import type {
       OntologyContext,
       OntologyEvent,
@@ -296,30 +297,49 @@ import Layout from "../layouts/Layout.astro";
       }
     }
 
-    function sourceLinks(sources: Array<number | string>): string {
-      return sources.map((source) => {
-        if (typeof source === "number" || /^\d+$/.test(String(source))) {
-          const num = Number(source);
-          return lastSearchResults[num - 1]
-            ? `<a class="citation" href="#source-${num}" aria-label="Source ${num}">${num}</a>`
-            : "";
-        }
-        const id = String(source);
-        const title = lastKnownOntologyIds.get(id);
-        return title
-          ? `<a class="citation" href="#ontology-${escape(id)}" aria-label="${escape(title)}">${escape(id)}</a>`
-          : "";
-      }).join("");
+    function citationSource(id: string): CitationSource | undefined {
+      if (/^\d+$/.test(id)) {
+        const article = lastSearchResults[Number(id) - 1]?.document;
+        return article ? {
+          id,
+          title: titleParts(article.title, article.url).text,
+          href: `#source-${Number(id)}`,
+          dateLabel: `Archived ${date.format(new Date(article.fetched_at))}`,
+        } : undefined;
+      }
+      const title = lastKnownOntologyIds.get(id);
+      return title ? { id, title, href: `#ontology-${id}` } : undefined;
     }
 
-    function citedText(value: string): string {
-      return escape(value).replace(/\[(\d+|[TER]\d+)\]/g, (marker, token) => {
-        if (/^\d+$/.test(token)) {
-          const source = Number(token);
-          return lastSearchResults[source - 1] ? sourceLinks([source]) : marker;
+    function citedParagraph(value: string, className: string): string {
+      const citations = createCitationRenderer(citationSource);
+      const text = citations.text(value);
+      return `<div class="cited-passage"><p class="${className}">${text}</p>${citations.panels()}</div>`;
+    }
+
+    function citedParagraphs(value: string): string {
+      const rawParas = String(value ?? "")
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const paragraphs: string[] = [];
+      for (const para of rawParas) {
+        const sentences = para.split(/(?<=[.!?])\s+(?=[A-Z0-9"“])/);
+        if (sentences.length >= 4 && rawParas.length === 1) {
+          const mid = Math.ceil(sentences.length / 2);
+          paragraphs.push(sentences.slice(0, mid).join(" "));
+          paragraphs.push(sentences.slice(mid).join(" "));
+        } else {
+          paragraphs.push(para);
         }
-        return lastKnownOntologyIds.has(token) ? sourceLinks([token]) : marker;
-      });
+      }
+      return paragraphs.map((para) => citedParagraph(para, "answer-copy")).join("");
+    }
+
+    function cleanFindingClaim(value: string): string {
+      return String(value ?? "")
+        .replace(/\s*(?:(?:\[(?:\d+|[TER]\d+|\s|,|-)+\]|\((?:[TER]\d+|\d+)\))\s*)+([.!?])?$/, "$1")
+        .trim();
     }
 
     function reasoningDepth(): "off" | "max" {
@@ -370,36 +390,45 @@ import Layout from "../layouts/Layout.astro";
       panel.innerHTML = `<p class="answer-state">Reading ${Math.min(20, lastSearchResults.length)} sources in ${reasoningLabel(depth).toLowerCase()} mode${depth === "max" ? ". Reasoned answers can take a minute or more" : ""}…</p>`;
       // The answer belongs to this search; if another search replaces the sources, it is discarded.
       const askId = requestId;
-      const evidence = lastSearchResults.slice(0, 20).map(({ document, score, eventCluster }: { document: SearchResultItem["document"]; score: number; eventCluster: OntologyEvent | null }) => ({
-        title: titleParts(document.title, document.url).text,
-        url: document.url,
-        archived_on: document.fetched_at.slice(0, 10),
-        first_seen: (document.first_seen ?? document.fetched_at).slice(0, 10),
-        surfaces: document.surfaces,
-        front_page_captures: document.front_page_captures ?? 0,
-        most_read_captures: document.most_read_captures ?? 0,
-        best_front_page: document.best_front_page ?? null,
-        best_most_read: document.best_most_read ?? null,
-        event_cluster: eventCluster?.label ?? "",
-        summary: document.summary,
-        topic: document.topic,
-        themes: document.themes,
-        story_form: document.story_form,
-        event_type: document.event_type,
-        similarity: score,
-      }));
+      const evidence = lastSearchResults.slice(0, 20).map(({ document, score, eventCluster }: { document: SearchResultItem["document"]; score: number; eventCluster: OntologyEvent | null }) => {
+        const hasFp = document.surfaces.includes("front_page") && (document.front_page_captures ?? 0) > 0;
+        const hasMr = document.surfaces.includes("most_read") && (document.most_read_captures ?? 0) > 0;
+        return {
+          title: titleParts(document.title, document.url).text,
+          url: document.url,
+          archived_on: document.fetched_at.slice(0, 10),
+          first_seen: (document.first_seen ?? document.fetched_at).slice(0, 10),
+          surfaces: document.surfaces,
+          front_page_captures: hasFp ? (document.front_page_captures ?? 0) : 0,
+          most_read_captures: hasMr ? (document.most_read_captures ?? 0) : 0,
+          best_front_page: hasFp ? (document.best_front_page ?? null) : null,
+          best_most_read: hasMr ? (document.best_most_read ?? null) : null,
+          event_cluster: eventCluster?.label ?? "",
+          summary: document.summary,
+          topic: document.topic,
+          themes: document.themes,
+          story_form: document.story_form,
+          event_type: document.event_type,
+          similarity: score,
+        };
+      });
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 180_000);
       try {
         const value = await requestResearch(query, evidence, lastOntologyContext, controller.signal);
         if (askId !== requestId) return;
         const findings = value.findings?.length
-          ? `<h3>Findings</h3><ol class="answer-findings">${value.findings.map((finding) => `<li><span>${escape(finding.claim)}</span><span class="citations">${sourceLinks(finding.sources)}</span></li>`).join("")}</ol>`
+          ? `<div class="answer-section"><h3>Key findings</h3><ol class="answer-findings">${value.findings.map((finding) => {
+            const citations = createCitationRenderer(citationSource);
+            const claim = citations.text(cleanFindingClaim(finding.claim));
+            const sources = citations.group(finding.sources);
+            return `<li><span class="finding-claim">${claim}</span> ${sources}${citations.panels()}</li>`;
+          }).join("")}</ol></div>`
           : "";
         const cost = value.usage?.costUsd ? ` · $${value.usage.costUsd.toFixed(5)}` : "";
         panel.innerHTML = `<div class="answer-head"><h2>Cited answer</h2><p>${escape(value.model)} · ${reasoningLabel(value.reasoning ?? depth)}${value.cached ? " · cached" : cost}</p></div>
-          <p class="answer-copy">${citedText(value.answer)}</p>${findings}
-          ${value.limitations ? `<p class="answer-limit"><strong>Limits.</strong> ${citedText(value.limitations)}</p>` : ""}
+          <div class="answer-body">${citedParagraphs(value.answer)}</div>${findings}
+          ${value.limitations ? `<div class="answer-limit"><strong>Scope &amp; limits</strong>${citedParagraph(value.limitations, "")}</div>` : ""}
           <p class="source-note">Generated from the numbered sources and matched archive concepts below, and can be wrong. Check each claim against its cited source. Model reasoning is neither stored nor shown.</p>`;
       } catch (error) {
         if (askId !== requestId) return;
@@ -412,6 +441,8 @@ import Layout from "../layouts/Layout.astro";
         window.clearTimeout(timeout);
       }
     }
+
+    bindCitationDisclosures(element("#research-answer"));
 
     function handleSemanticMessage(event: MessageEvent) {
       const message = event.data;

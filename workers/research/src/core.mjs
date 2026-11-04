@@ -58,13 +58,24 @@ First rank evidence by relevance and ignore weak or off-topic matches. Synthesiz
 Dates: each source's archived_on is the day this archive fetched the article, and first_seen is the day the story URL was first captured on a BBC list. Neither is the event date; take event dates only from a source's summary or title, and when they give none, say the date is not stated in the sources.
 Coverage and grain: the evidence array is a sample of at most twenty retrieved articles, not the whole archive. Never infer archive-wide totals, theme frequencies, or promotion rates from the twenty-article sample alone; use the archive object for archive coverage bounds and use supplied ontology records ([T1], [E1], [R1]) when stating archive-wide story counts, front_page vs most_read reach, or recurring-event spans. Per-source front_page_captures and most_read_captures count distinct homepage/Most Read captures of that story URL, and best_front_page / best_most_read are its highest ranks (1 is top). If no source or ontology record covers the period or event asked about, say so without claiming the archive has nothing.
 When sources describe successive stages of a story, order them by date before calling them conflicting. If the question is ambiguous, say so and answer each plausible reading separately.
-Return one JSON object and no markdown, with: answer (a concise, calibrated synthesis using [1], [2] and optional [T1], [E1], [R1] source markers), findings (up to eight precise objects with claim and sources), and limitations (coverage gaps and uncertainty; never empty).
+Style and formatting: write clear, readable editorial prose. Never print raw JSON field names (such as reach_rate, front_page, most_read, best_front_page, promoted_only, read_only) in your text; use plain English ("reach rate", "front page", "Most Read", "promoted on the front page without reaching Most Read"). Always use square brackets [1], [T1] for citations, never parentheses (T1). Structure answer into 2 or 3 short paragraphs separated by "\\n\\n" (for example: first paragraph on archive-wide patterns from the ontology; second paragraph on key illustrative stories from the sample). In findings[].claim, write a clean standalone sentence WITHOUT trailing [1] or (T1) citation markers because sources are already attached in findings[].sources.
+Return one JSON object and no markdown, with: answer (2-3 readable paragraphs separated by "\\n\\n" using [1], [2] and optional [T1], [E1], [R1] source markers), findings (up to eight precise objects with claim and sources), and limitations (1-3 concise sentences on coverage gaps and sample limits; never empty).
 Every substantive claim must cite at least one supplied source (1 to 20, or a supplied ontology ID such as "T1", "E1", "R1"). Do not invent source IDs or imply that every supplied result is relevant.`;
 
 export class InputError extends Error {}
 
 function compact(value, limit) {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function compactParagraphs(value, limit) {
+  return String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n\s*\n/)
+    .map((para) => para.replace(/[ \t\n]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, limit);
 }
 
 function boundedInt(value, min = 0, max = 100_000) {
@@ -236,9 +247,13 @@ export function normalizeRequest(body) {
     const mrCaptures = boundedInt(row?.most_read_captures, 0, 10_000);
     if (mrCaptures !== null && mrCaptures > 0) item.most_read_captures = mrCaptures;
     const bestFp = boundedInt(row?.best_front_page, 1, 200);
-    if (bestFp !== null) item.best_front_page = bestFp;
+    if (bestFp !== null && (fpCaptures === null || fpCaptures > 0) && (!item.surfaces || item.surfaces.includes("front_page"))) {
+      item.best_front_page = bestFp;
+    }
     const bestMr = boundedInt(row?.best_most_read, 1, 200);
-    if (bestMr !== null) item.best_most_read = bestMr;
+    if (bestMr !== null && (mrCaptures === null || mrCaptures > 0) && (!item.surfaces || item.surfaces.includes("most_read"))) {
+      item.best_most_read = bestMr;
+    }
     const eventCluster = compact(row?.event_cluster, 140);
     if (eventCluster) item.event_cluster = eventCluster;
     evidence.push(item);
@@ -292,9 +307,10 @@ export function parseCompletion(
     throw new Error("DeepSeek did not return valid JSON.");
   }
   const validOntologyIds = allowedOntologyIds(ontology);
-  const rawAnswer = compact(content?.answer, 6000);
-  // Strip any bracketed numeric or ontology citation marker that points outside the supplied evidence/ontology.
+  const rawAnswer = compactParagraphs(content?.answer, 6000);
+  // Normalize parenthesised ontology markers like (T1) -> [T1] and strip any citation marker outside the supplied evidence/ontology.
   const answer = rawAnswer
+    .replace(/\(([TER]\d+)\)/g, "[$1]")
     .replace(/\[(\d+|[TER]\d+)\]/g, (marker, token) => {
       if (/^\d+$/.test(token)) {
         const num = Number(token);
@@ -302,8 +318,10 @@ export function parseCompletion(
       }
       return validOntologyIds.has(token) ? marker : "";
     })
-    .replace(/\s+/g, " ")
-    .trim();
+    .split("\n\n")
+    .map((para) => para.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean)
+    .join("\n\n");
   if (!answer) throw new Error("DeepSeek returned an incomplete archive answer.");
 
   const findings = (Array.isArray(content?.findings) ? content.findings : [])
@@ -327,8 +345,12 @@ export function parseCompletion(
       }
       numericSources.sort((left, right) => left - right);
       ontologySources.sort();
+      // Strip trailing inline citation clusters like " [1][2]." or " (T1)." since findings render badges next to the claim.
+      const cleanedClaim = compact(row?.claim, 1200)
+        .replace(/\s*(?:(?:\[(?:\d+|[TER]\d+|\s|,|-)+\]|\((?:[TER]\d+|\d+)\))\s*)+([.!?])?$/, "$1")
+        .trim();
       return {
-        claim: compact(row?.claim, 1200),
+        claim: cleanedClaim,
         sources: [...numericSources, ...ontologySources],
       };
     })

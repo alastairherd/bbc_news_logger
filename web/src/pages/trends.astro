@@ -27,7 +27,7 @@ import Layout from "../layouts/Layout.astro";
         <p id="weekly-window">Loading the latest weekly summaries…</p>
       </div>
       <div class="weekly-grid" id="weekly-summaries"></div>
-      <p class="source-note">Written by DeepSeek V4.1 Flash from the week’s article summaries, and can be wrong. Numbers link to the stories each sentence cites.</p>
+      <p class="source-note">Written by DeepSeek V4.1 Flash from the week’s article summaries, and can be wrong. References link to archive records; expand a source group to see the stories supporting that claim.</p>
     </section>
 
     <section class="trend-block" aria-labelledby="findings-heading">
@@ -113,6 +113,7 @@ import Layout from "../layouts/Layout.astro";
 
   <script>
     import { titleParts } from "../lib/titles";
+    import { bindCitationDisclosures, createCitationRenderer } from "../lib/citations";
 
     interface TrendSeriesRow { observed_date: string; article_count: number }
     interface EventArticle { story_id: string; title: string; url: string; fetched_at: string; best_position: number | null; surfaces: string[] }
@@ -204,15 +205,22 @@ import Layout from "../layouts/Layout.astro";
       }
       element("#weekly-window").textContent = `${date.format(new Date(weekly.weekStart))} to ${date.format(new Date(weekly.weekEnd ?? weekly.weekStart))}: the themes with the most labelled articles.`;
       element("#weekly-summaries").innerHTML = weekly.themes.map((theme) => {
-        // Citation markers become links to the archive record of the cited story.
-        const summary = escape(theme.summary).replace(/\[(\d+)\]/g, (marker, index) => {
-          const story = theme.evidence[Number(index) - 1];
-          return story ? `<a class="citation" href="${base}explore/?story=${encodeURIComponent(story.storyId)}" title="${escape(story.title)}">${index}</a>` : marker;
+        const citations = createCitationRenderer((id) => {
+          if (!/^\d+$/.test(id)) return undefined;
+          const story = theme.evidence[Number(id) - 1];
+          return story ? {
+            id,
+            title: titleParts(story.title, story.url).text,
+            href: `${base}explore/?story=${encodeURIComponent(story.storyId)}`,
+          } : undefined;
         });
+        const summary = citations.text(theme.summary);
         return `<article class="weekly-item"><h3><a href="${askLink(theme.theme)}">${escape(label(theme.theme))}</a></h3>
-          <p class="story-meta"><span>${number.format(theme.articleCount)} labelled articles</span></p><p class="weekly-summary">${summary}</p></article>`;
+          <p class="story-meta"><span>${number.format(theme.articleCount)} labelled articles</span></p><p class="weekly-summary">${summary}</p>${citations.panels()}</article>`;
       }).join("");
     }
+
+    bindCitationDisclosures(element("#weekly-summaries"));
 
     function renderFindings(findings: Findings) {
       const labelled = findings.window ? findings.window.recentLabelledArticles + findings.window.previousLabelledArticles : 0;
